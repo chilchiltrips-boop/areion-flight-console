@@ -1,0 +1,15 @@
+{
+  "component": "desktop_sdk",
+  "version": "3.12.3",
+  "date": "2026-11-19",
+  "protocol": 2,
+  "paired_firmware": "3.2.0",
+  "paired_arduino_library": "3.2.0",
+  "paired_desktop_sdk": "3.12.3",
+  "supported_desktop_firmware": [
+    "3.1.0",
+    "3.2.0"
+  ],
+  "hardware": "Areion FC A1",
+  "physical_hardware_tested": false
+}

@@ -1,0 +1,186 @@
+Areion Flight Console and Python SDK 3.12.3
+2026-11-19
+
+Transmitter ON/OFF display
+A compiled FC 3.2.0 publisher supplied serial DATA to the native desktop. The
+test operated the Configuration → Input buttons and used a second window to
+check profile reload. With the other sticks stationary, CH6 at 2000 µs showed
+TX ON in green. The verified loss marker at 1000 µs changed TX, PPM, INPUT
+and MODE to orange even while the FC continued receiving eight channels.
+The pulse-stop method, signal recovery, AP/USB selection, flight-mode channel
+conflict and refusal of indistinguishable ON/OFF frames were also exercised.
+The verification workflow sent zero frames to the FC. Physical hardware was
+not available for this test.
+
+Areion Flight Console and Python SDK 3.12.2
+2026-11-19
+
+Receiver and flight-mode indicators
+The compiled 3.2.0 publisher with simulated peripherals produced two healthy
+PPM status reports 336 ms apart while receiving regular PPM pulses in RATE.
+The 3.12.1 desktop receiver and mode tiles warned during that interval.
+With the same serial frames, 3.12.2 kept PPM, INPUT and MODE green. A later
+reported signal loss changed the indicators, and a real CH5 switch change
+updated the mode label to ANGLE. Tests also cover a missing telemetry report
+beyond 500 ms, FC frame timeout, raw/accepted receiver plots and diagnostics.
+Physical-kit verification is pending.
+
+Previous release (3.12.1)
+
+Input selector and USB discovery
+Native Qt tests exercise header port selection, editable paths, hotplug,
+selection during an open popup, and remembered defaults across restarts.
+The settings popup was kept open through device arrival, removal and replug.
+New rows could be selected without closing the list or opening a serial link.
+Port enumeration runs outside the controller command worker.
+
+Three independent launches of main.py used the shipping serial transport and
+a compiled 3.2.0 firmware peer over Linux pseudo-terminals. With a simulated
+OS device inventory, the tests verified successful manual USB connection,
+rejection of an incompatible device, and retention of the confirmed port
+when only AP replied in USB + AP mode. On restart, three scans opened zero
+serial ports. Keyboard tests also exercised Flight Data popup navigation.
+
+The Flight Data input list and the full USB header path were displayed at
+900, 1280 and 1660 logical pixels, at both Qt scale factors 1 and 2. Native
+rendered row checks covered normal, highlighted and disabled text.
+
+Physical hardware and macOS testing are pending.
+
+Previous release (3.12.0)
+
+Flight Data
+The native Qt dashboard was exercised at 900 × 700, 1280 × 800 and
+1660 × 1000 logical pixels at both 1× and 2× scale. Checks cover the
+normal and expanded health layouts, per-source status, and pose recovery.
+The downloadable image and animation use labelled sample telemetry.
+
+With simulated peripherals, the compiled 3.2.0 sketch and Arduino library
+published 272 frames. The desktop decoder and window processed these frames,
+displaying a 24° bank, −15° pitch and 48° relative turn. An injected sensor
+fault cleared the pose and a fresh reading restored it. A separate batch
+test captured a short turn occurring between two display ticks.
+
+Physical kit testing is pending.
+
+Previous release (3.11.0)
+
+PID tuning
+Qt tests exercise the normal Welcome and Configuration routes, gain mapping,
+local linked edits, saved versus active values, verification error reporting,
+disarm persistence, missing or stale tracking samples, and target gating
+across setup and mode changes. The tracking graph uses received samples. The
+release screenshot uses an explicitly labelled sample telemetry fixture.
+All three PID tabs fit at 900 × 700, 1280 × 800 and 1660 × 1000 logical pixels
+at both 1× and 2× Qt scale.
+
+A Linux host build of the 3.2.0 sketch and Arduino protocol library ran with
+simulated peripherals and NVS. The native Apply buttons sent action 137 over
+loopback UDP. Changes to individual rate and angle cells persisted over a
+simulated reboot, including unchanged high-precision gains. A separate test
+confirmed that bench updates were pending with zero flash writes while armed
+and that both sections persisted after DISARM. Injected readback mismatches
+and storage failures exercised the error paths.
+
+The kit, physical motors, USB cable, radio link and macOS GUI were not tested.
+
+Previous release (3.10.0)
+
+Scopes
+Qt tests exercise the normal MainWindow and SDK receive path, multiple time
+plots, signal gaps, mapping and missing channels, an FC session change, freeze
+and resume, and a CSV export that includes packets received during freeze.
+The chart tests exercise keyboard and mouse trace selection, cursor readout,
+and preserving short extrema when a trace contains more points than pixels.
+The workspace was viewed at 900 x 700, 1280 x 800 and 1660 x 1000 logical
+pixels, with Qt scale factors 1 and 2. Preview images use sample telemetry.
+
+The firmware 3.2.0 publisher and protocol engine were compiled on the host with
+simulated peripherals. Two 24-second captures exercised locked and completed
+setup. The Python decoder and Scopes FFT recovered an injected 1.25 Hz signal
+at 1.247 Hz in each capture (128 samples, measured 6.65 samples/s, Nyquist
+3.32 Hz). Separate fixtures exercised the alternating 50/100 ms schedule,
+dropouts, bursty arrivals, unknown signal states and USB/AP source changes.
+Tests used Linux and Qt offscreen. Physical kit timing, macOS rendering and
+flight were not tested.
+
+Previous release (3.9.0)
+
+Setup verification
+The switch preview was exercised with both switch positions, a 1500 µs
+boundary, stale or unavailable PPM, and draft channel or mode changes.
+A source-only change displayed one review row and preserved untouched IMU
+offsets at their original precision.
+
+The desktop SDK also communicated over loopback UDP with a host build of the
+3.2.0 flight-controller sketch and Arduino protocol engine. This uses simulated
+peripherals and storage. The desktop finalized the setup on the host controller,
+reconnected with a new client session within the same boot, then checked the
+same kit on a new boot after restoring its settings. The verifier separately
+detected a deliberately changed stored accelerometer X offset. Wire monitoring
+during verification recorded only HELLO, READ and RELEASE in that run.
+
+Qt integration tests exercise the optional step, fresh same-kit and other-kit
+identities, reconnect, read failures, reopening the local receipt and explicit
+return to ordinary setup. Additional checks exercise the restored setup arm
+lock when opening editing again. Screenshots use sample telemetry.
+
+Tests ran on Linux with Python 3.12 and Qt offscreen. Physical hardware,
+native macOS/PyCharm and flight were not exercised.
+
+Previous release (3.8.0)
+
+Guided setup
+The setup widget and normal launcher were exercised in an offscreen Qt session.
+The workflow test opens the wizard, obtains the setup lock, reviews a previously
+verified receiver kit, uses Back and Next through all nine steps and finishes
+with a verified save. The fixture confirms the kit remains disarmed. A separate
+clean launch checks that offline navigation cannot unlock setup or issue output.
+
+The IMU tests rotate the live and guide models independently, including inverted
+poses, and exercise movement rejection, retry, sample progress and stale data.
+The receiver tests use timed PPM frames to check mapping, reversed channels,
+travel and neutral capture. Clicking either gimbal emits no hardware commands.
+The preview images use labelled sample telemetry. The app displays real kit
+readings during calibration.
+
+Setup layout tests cover small and large desktop windows and Qt scale factors
+1, 1.5 and 2. The capture, progress and retry controls for IMU and PPM fit
+at 900 x 700 logical pixels. The ZIP contains the two airframes and material
+palette. No extra 3D viewing software is needed.
+
+Tests ran on Linux with Python 3.12, PySide6 6.12 and pyserial 3.5.
+A physical controller, native macOS display and flight were not exercised.
+
+Previous release (3.7.0)
+Flight instruments and compact transmitter
+Live fixture tests exercise positive and negative angles, combined tilt, the
+roll wrap at 180 degrees, near-vertical pitch and relative yaw reset. Frame
+comparisons validate the moving horizon. Fresh ARM status remains visible
+even when attitude data is missing. Stale status clears the ARM indication.
+The receive queue preserves host transport receipt times after a GUI pause.
+Page switching keeps the gyro reference while live samples continue to arrive.
+
+Layout tests opened Flight Data from Welcome and navigated between the
+joystick and map at 900 x 700, 1280 x 800 and 1660 x 1000. Opening the
+map issued no hardware commands. Both sticks, sender, ARM and the horizon fit
+inside the workspace. Detailed health readings use the same space as the
+motor strip, so opening them does not displace the primary flight display.
+
+The previews use synthetic telemetry fed into the desktop widgets. The package
+does not offer a Demo session. The launch checks used Qt offscreen on Linux
+with Python 3.12, PySide6 6.12.0 and pyserial 3.5. The Arduino firmware and
+link protocol retain their existing release versions.
+
+Previous release input persistence verification (3.4.0)
+Input switching was tested on the shipped 3.2.0 sketch using its host build,
+storage stubs and the actual Arduino link library. All 35 setup scenarios
+passed under AddressSanitizer and UndefinedBehaviorSanitizer. PPM to AP to USB
+to PPM retained the non-source configuration, completion and receiver/sensor/
+motor evidence. All eight settings groups were compared before and after each
+simulated reboot with nondefault values. A digital-first setup required receiver
+qualification before enabling PPM. The test also exercised armed/busy refusal,
+failed persistence, and incomplete storage. Firmware and Arduino library
+production sources match the 3.2.0 packages.
+
+A physical FC, native macOS/PyCharm display and flight were not exercised.

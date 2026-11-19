@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Data layout proposal · Areion FC A1</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1520;--panel:#142434;--line:#34495b;--text:#e7eff5;--muted:#adbfcd;--active:#80decf;font:15px/1.4 system-ui,sans-serif;background:var(--bg);color:var(--text)}
+*{box-sizing:border-box}body{margin:0}main{max-width:1340px;margin:auto;padding:16px clamp(14px,3vw,44px) 26px}
+header,.row,.modes,.top,.readouts,.commands{display:flex;align-items:center;gap:12px}
+header{justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:12px}
+.brand{font-weight:750;letter-spacing:.02em}.tag,.pill{font-size:.77rem;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:4px 10px}
+.modes{padding:2px;border:1px solid var(--line);border-radius:7px;gap:1px}.modes label{padding:4px 12px;border-radius:4px;cursor:pointer;font-weight:600;font-size:.83rem}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}#ppm:checked~header label[for=ppm],#local:checked~header label[for=local]{background:#29484c;color:#abf4e7}
+#ppm:focus-visible~header label[for=ppm],#local:focus-visible~header label[for=local],summary:focus-visible{outline:2px solid #eeb876;outline-offset:2px}
+#local:checked~.grid .ppm,#ppm:checked~.grid .local{display:none}
+.top{justify-content:space-between;margin:16px 0 12px}.top h1{margin:0;font-size:clamp(22px,2.5vw,32px)}.readouts{flex-wrap:wrap;gap:5px 13px;color:var(--muted);font-size:.8rem}
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px}
+section,details{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+section{padding:clamp(12px,1.5vw,20px)}h2{font-size:1.12rem;margin:0}h3{font-size:.83rem;margin:0;color:var(--muted);font-weight:550}
+.sect-head{display:flex;align-items:center;min-height:28px;justify-content:space-between;gap:8px;margin-bottom:12px}
+figure{margin:0}figcaption,.hint,.tiny{font-size:.79rem;color:var(--muted)}
+.instrument{border:1px solid #435567;background:#152632;border-radius:7px;overflow:hidden}.scope{display:block;width:100%;height:clamp(130px,17vh,190px);background:#142532}
+.nums{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;background:#10202d;padding:9px 4px}.nums b,.outs b{display:block;font-size:1.02rem}.nums small{font-size:.72rem;color:var(--muted)}
+.channels{margin-top:13px}.outs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px}.outs span{display:block;color:var(--muted);font-size:.78rem}.outs i{display:block;height:3px;background:#405365;margin:5px 0}
+.sticks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;text-align:center}.sticks figcaption{margin:5px 0 6px}.stick{border:1px solid #405567;border-radius:15px;width:min(100%,135px);aspect-ratio:1;margin:auto;position:relative;background:linear-gradient(transparent calc(50% - .5px),#3b5061 50%,transparent calc(50% + .5px)),linear-gradient(to right,transparent calc(50% - .5px),#3b5061 50%,transparent calc(50% + .5px)),#101e2b}.stick:after{content:"";position:absolute;inset:11%;border:1px solid #2b3f50;border-radius:50%}
+.stick-hint{text-align:center;margin:8px 0;color:var(--muted);font-size:.8rem}
+.commands{justify-content:center;gap:7px;flex-wrap:wrap;margin-top:9px}.commands button{font:inherit;font-size:.79rem;background:#1b2b3a;border:1px solid #455867;color:#a2b4c3;border-radius:5px;padding:5px 10px}.source-footer{font-size:.8rem;text-align:center;color:var(--muted);padding:8px 2px 0}
+.health{grid-column:1/-1}.health-list{display:flex;flex-wrap:wrap;gap:7px}.health-item{background:#192b3a;border:1px solid #405465;border-radius:6px;padding:5px 9px;font-size:.79rem}.health-item b{margin-right:5px}.health-item span{color:var(--muted)}
+details{margin-top:12px;font-size:.85rem}summary{cursor:pointer;padding:10px 15px;font-weight:600}details p{margin:0;padding:0 15px 12px;color:var(--muted)}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.top,header{align-items:flex-start;flex-wrap:wrap}.sticks{gap:5px}.stick{max-width:112px}.scope{height:135px}section{padding:12px}.readouts{gap:4px 10px}.row{flex-wrap:wrap}.tag{display:none}}
+@media(max-height:680px) and (min-width:761px){main{padding-top:9px}.top{margin:8px 0}.scope{height:115px}.stick{max-width:104px}.sect-head{margin-bottom:7px}section{padding:12px}.nums{padding:5px}.health{padding:8px 12px}}
+</style>
+</head>
+<body>
+<main>
+<input class="visually-hidden" type="radio" name="layout" id="ppm" aria-label="PPM layout preview" checked>
+<input class="visually-hidden" type="radio" name="layout" id="local" aria-label="USB or AP layout preview">
+<header><div class="row"><span class="brand">Areion FC A1</span><span class="tag">Layout proposal</span></div><div class="row"><span class="tiny">Preview layout</span><div class="modes"><label for="ppm">PPM</label><label for="local">USB / AP</label></div></div></header>
+<div class="top"><h1>Flight Data</h1><div class="readouts" aria-label="Flight controller status"><span>Link <b>Offline</b></span><span>Input <b>—</b></span><span>FC mode <b>—</b></span><span>Arming <b>—</b></span></div></div>
+<div class="grid">
+<section aria-labelledby="att"><div class="sect-head"><h2 id="att">Attitude</h2><span class="pill">Waiting for IMU</span></div>
+<figure class="instrument"><svg class="scope" viewBox="0 0 440 160" role="img" aria-label="Empty attitude display awaiting telemetry"><g stroke="#415764" fill="none"><path d="M134 56 Q220 -9 306 56"/><path d="M220 22v8m-31-3 2 7m-29 4 4 6m117-6-4 6m-29-17-2 7"/><path d="M94 79h66l8 7h19m66 0h19l8-7h66"/><circle cx="220" cy="81" r="4"/></g><text x="220" y="125" fill="#adc0ce" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13">No attitude sample</text></svg>
+<figcaption class="nums"><span><b>—</b><small>Roll</small></span><span><b>—</b><small>Pitch</small></span><span><b>—</b><small>Relative yaw</small></span></figcaption></figure>
+<div class="channels"><h3>Commanded motor output · µs</h3><div class="outs"><span>M1<i></i><b>—</b></span><span>M2<i></i><b>—</b></span><span>M3<i></i><b>—</b></span><span>M4<i></i><b>—</b></span></div></div>
+</section>
+<section aria-label="Control input"><div class="sect-head"><h2><span class="ppm">PPM receiver</span><span class="local">Virtual transmitter</span></h2><span class="pill ppm">Monitor</span><span class="pill local">Sender off</span></div>
+<div class="sticks"><figure><div class="stick" aria-hidden="true"></div><figcaption>Throttle / Yaw</figcaption></figure><figure><div class="stick" aria-hidden="true"></div><figcaption>Pitch / Roll</figcaption></figure></div>
+<p class="stick-hint ppm">Waiting for receiver channels</p><p class="stick-hint local">USB / AP input controls</p>
+<div class="commands local"><button type="button" disabled>Start sender</button><button type="button" disabled>Arm</button></div>
+<div class="source-footer ppm">Flight mode follows the transmitter switch.</div><div class="source-footer local">Flight mode <b>—</b></div>
+</section>
+<section class="health" aria-labelledby="health"><div class="sect-head"><h2 id="health">System health</h2></div><div class="health-list"><div class="health-item"><b>Input</b><span>Unknown</span></div><div class="health-item"><b>Output</b><span>Unknown</span></div><div class="health-item"><b>I²C</b><span>Unknown</span></div><div class="health-item"><b>Telemetry</b><span>Offline</span></div><div class="health-item"><b>Setup</b><span>Unknown</span></div></div></section>
+</div>
+<details><summary>Channels &amp; diagnostics</summary><p>Show all eight FC channels, sample age and available sensor values. In the USB / AP layout, pair each received channel with its local command.</p></details>
+<details><summary>Design notes</summary><p>The live page can reuse the current roll/pitch horizon, relative-yaw estimate and motor-command readback. Color each status using its FC report. Green means healthy, amber means waiting, red means a detected fault, and gray means unavailable. Keep secondary controls for key mapping and bench tuning in their existing configuration workflows.</p></details>
+</main>
+</body>
+</html>
