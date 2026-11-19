@@ -1,4 +1,5 @@
 import {airframe} from './airframe.js';
+import {drawResponse} from './pid-trace.js';
 import {poses,SensorCheck} from './calibration.js';
 
 const panes={wizard:'Setup wizard',input:'Input / receiver',imu:'IMU',esc:'ESC / motors',pid:'PID / settings'};
@@ -35,7 +36,7 @@ export function mount(root) {
   const sensor=new SensorCheck();
   let page='wizard',step=0,confirmed=false,subPID=0,pickedProfile=0,pose=0,last=null,linkId=null;
   let offsetDraft=[null,null,null],endpoints=null,rxRun=false,statusRow=null;
-  let tabRoots,sceneOrbit=0,profileEdited=false;
+  let tabRoots,sceneOrbit=0,profileEdited=false,responseAxis=0,responseAngle=0;
   function safetyPage(){
     return box('Remove propellers',canvas('profile')+'<p>Motors can start during kit setup. Keep all propellers removed until setup is complete.</p>'+confirmation(confirmed))+
       box('Kit connection',row('Board','kit')+row('Firmware','firmware')+row('Arming','armed')+row('Setup lock','locked')+'<p>Browse steps here. Start kit setup in the full console to engage the controller’s arming lock.</p>'+full('Start kit setup'));
@@ -80,7 +81,7 @@ export function mount(root) {
     const gains=(g,n)=>kvTable(['Gain',...axes.slice(0,n)],['P','I','D'].map((k,i)=>'<tr><th scope="row">'+k+'</th>'+Array.from({length:n},(_,j)=>'<td>'+reading('gain'+g+'-'+(i*n+j))+'</td>').join('')+'</tr>').join(''));
     const views=[
       ()=>box('Inner loop · rate',gains(2,3))+box('Outer loop · angle',gains(3,2)),
-      ()=>box('Stick response',row('Angle scale','angleScale')+row('Rate scale','rateScale')+row('Yaw scale','yawScale')+row('Input deadband','deadband'))+box('Live targets',row('Roll / pitch / yaw (°/s)','targets')+row('Measured gyro (°/s)','rates')+row('Target roll / pitch (°)','targetAngles')),
+      ()=>box('Stick response',row('Angle scale','angleScale')+row('Rate scale','rateScale')+row('Yaw scale','yawScale')+row('Input deadband','deadband'))+box('Live targets',row('Roll / pitch / yaw (°/s)','targets')+row('Measured gyro (°/s)','rates')+row('Target roll / pitch (°)','targetAngles'))+'<section class="cfg-card cfg-wide"><h3>Tracking response</h3><div class="cfg-actions">'+opt('Loop',['Rate','Angle'],responseAngle)+opt('Axis',axes.slice(0,responseAngle?2:3),responseAxis)+'</div><canvas data-response class="cfg-response" role="img" aria-label="Measured and target tracking response over ten seconds"></canvas><small>Measured <b class="cfg-meas">━</b> &nbsp; Target <b class="cfg-target">━</b> · '+(responseAngle?'degrees':'degrees / second')+'</small></section>',
       ()=>box('Stored tune',row('Pending','pending')+row('Active revision','pidRev')+row('Stored revision','pidSaved')+row('Controller result','pidError'))+box('Aircraft',row('Saved profile','profile')+canvas('profile'))
     ];
     return '<div class="cfg-tabs">'+['Gains','Response','Stored tune'].map((p,i)=>'<button type="button" data-pid="'+i+'" aria-pressed="'+(subPID===i)+'">'+p+'</button>').join('')+'</div><div class="cfg-grid">'+views[subPID]()+'</div><div class="cfg-actions">'+full('Open PID tuning & apply')+'</div>';
@@ -188,6 +189,7 @@ export function mount(root) {
     }
     const sel=root.querySelector('[data-select="Aircraft preview"]');if(sel)sel.value=String(pickedProfile);
     for(const ph of root.querySelectorAll('[data-phase]'))ph.classList.toggle('on',fc?.[3]!==5 && [1,2,3,4].slice(0,Math.min(4,fc?.[3]??0)).includes(Number(ph.dataset.phase)+1));
+    const chart=root.querySelector('[data-response]');if(chart)drawResponse(chart,ctx,responseAxis,!!responseAngle);
     const canSample=confirmed&&gate(ctx)&&!!imu&&!!base&&!sensor.active;
     const buttons={back:!step,next:!confirmed,pose:!canSample||sensor.faces.has(pose),gyro:!canSample,'rx-capture':!rxRun&&(!confirmed||!gate(ctx)||!rawFresh||get(122,500)?.[0]!==0||!get(122,500)?.[2])};
     for(const [key,disabled] of Object.entries(buttons)){const b=root.querySelector('[data-act="'+key+'"]');if(b)b.disabled=!!disabled;}
@@ -202,6 +204,8 @@ export function mount(root) {
       if(!confirmed){rxRun=false;if(sensor.active)sensor.stop('Capture cancelled.');if(page==='wizard')step=0;}
       draw();
     } else if(el.dataset.select==='Aircraft preview'){pickedProfile=Number(el.value);profileEdited=true;if(last)update(last);}
+    else if(el.dataset.select==='Loop'){responseAngle=Number(el.value);if(responseAngle)responseAxis=Math.min(1,responseAxis);draw();}
+    else if(el.dataset.select==='Axis'){responseAxis=Number(el.value);if(last)update(last);}
     else if(el.dataset.select==='Target pose'){pose=Number(el.value);if(last)update(last);}
   });
   root.addEventListener('input',event=>{

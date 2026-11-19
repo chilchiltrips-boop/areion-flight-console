@@ -35,3 +35,4 @@
 @media(max-width:850px){.cfg-wiz{grid-template-columns:minmax(0,1fr)}.cfg-steps{display:flex;flex-direction:row;overflow-x:auto}.cfg-step{flex:none}.cfg-step span{min-width:auto}}
 @media(max-width:620px){.cfg-grid{grid-template-columns:1fr}.cfg-tabs button{padding:.4rem .55rem;font-size:.84rem}.cfg-steps{margin-bottom:.3rem}.cfg-kv{font-size:.88rem}}
 @media(prefers-reduced-motion:reduce){.cfg-page *{transition:none!important}}
+.cfg-response{display:block;width:100%;height:150px;margin:.6rem 0;border-radius:4px}.cfg-meas{color:#71dac4}.cfg-target{color:#ffb66b}
