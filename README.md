@@ -29,7 +29,7 @@ To reopen the running console, choose **Full browser console → Open running co
 
 ## Open USB telemetry or a recording
 
-On the published page, select **Connect USB** in a browser with Web Serial support and select the board. The cockpit waits for the Link v2 handshake. **Flight Data → Recordings** imports telemetry CSV files from either console and exports packets from the current USB session. Roll, pitch, relative yaw, receiver channels and scopes update from the live link or the playback position. Configure, save and operate the kit in the full browser console.
+On the published page, select **Connect USB** in a browser with Web Serial support and select the board. The cockpit waits for the Link v2 handshake. **Flight Data → Recordings** imports telemetry CSV files from either console and exports packets from the current USB session. Roll, pitch, relative yaw, receiver channels and scopes update from the live link or the playback position. **Check transmitter** in Flight Data or Configuration records a live ON, OFF and restored-link check. The browser remembers the result for that receiver configuration and kit. A receiver that keeps transmitting unchanged channel values on radio loss remains unverified. Use the full browser console to apply controller settings and operate the kit.
 
 ## Development
 

@@ -22,3 +22,12 @@
 @media(max-width:740px){#flight-page .tiles{grid-template-columns:repeat(3,minmax(0,1fr))}#flight-page .health{grid-row:auto}}
 
 .flight-pose{position:relative}.pose-wait{position:absolute;top:46%;left:0;right:0;text-align:center;color:#bdd5d7;font-size:.9rem;pointer-events:none}
+.tx-evidence-badge{font-size:.74rem;font-weight:700;padding:.35rem .6rem;border-radius:4px;background:#384a54;color:#eef4f5}
+.tx-evidence-badge[data-tone=warn]{background:#e99436;color:#2b1b0c}
+.tx-evidence-badge[data-tone=good]{background:#166737;color:#fff}
+.tx-evidence-dialog{max-width:min(30rem,92vw);box-sizing:border-box;padding:1.25rem;border:1px solid #516d78;border-radius:.75rem;background:#172936;color:#edf5f5}
+.tx-evidence-dialog::backdrop{background:rgb(4 11 14 / 68%)}
+.tx-evidence-dialog h2,.tx-evidence-dialog h3{margin:.4rem 0 .8rem;color:#e9f5f3}
+.tx-evidence-dialog p{color:#cbdcde;line-height:1.45}
+.tx-evidence-dialog input,.tx-evidence-dialog select{accent-color:#63c8b7;margin:.4rem}
+.tx-evidence-dialog button{margin:.35rem .35rem .15rem 0}

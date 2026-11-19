@@ -1,6 +1,6 @@
 import { encodeRequest, FrameDecoder, newer, schemaFor, validGroup } from "./protocol.js";
 
-const SETTINGS = [125, 110, 7, 112, 134, 121, 2, 3, 4, 6, 132];
+const SETTINGS = [125, 110, 7, 112, 134, 130, 121, 2, 3, 4, 6, 132, 136];
 const OWNER_LOST = new Set(["NOT_OWNER", "SESSION_EXPIRED", "SESSION_RETIRED"]);
 const time = () => performance.now();
 const nextSeq = seq => (seq + 1) >>> 0 || 1;

@@ -57,8 +57,8 @@ export function mount(root) {
       box('Stationary gyro check',confirmation(confirmed)+'<p>Keep the disarmed kit still on a level surface. Each capture uses at least 20 samples over three seconds.</p>'+act('gyro','Capture gyro residual')+row('Residual (°/s)','bias')+row('Gyro after residual (°/s)','afterGyro'));
   }
   function receiver() {
-    return box('Receiver activity',sticks()+row('Selected input','selected')+row('Active input','active')+row('Receiver','inputHealth')+row('Switch channel','flightCh'))+
-      box('PPM endpoint capture',confirmation(confirmed)+'<p>Sweep the sticks and switches through their full travel. This preview uses the raw PPM stream from the kit.</p><div class="cfg-actions">'+act('rx-capture','Capture range')+act('rx-clear','Clear range')+'</div>'+row('Raw PPM','rawStatus')+row('Samples','rxSamples')+full('Calibrate or verify transmitter link'))+
+    return box('Receiver activity',sticks()+row('Selected input','selected')+row('Active input','active')+row('Receiver','inputHealth')+row('Switch channel','flightCh')+act('check-tx','Check transmitter'))+
+      box('PPM endpoint capture',confirmation(confirmed)+'<p>Sweep the sticks and switches through their full travel. This preview uses the raw PPM stream from the kit.</p><div class="cfg-actions">'+act('rx-capture','Capture range')+act('rx-clear','Clear range')+'</div>'+row('Raw PPM','rawStatus')+row('Samples','rxSamples')+full('Save receiver calibration'))+
       '<section class="cfg-card cfg-wide"><h3>Physical PPM channels</h3>'+kvTable(['Channel','Function','Raw (µs)','Min','Center','Max','Direction'],Array.from({length:8},(_,i)=>channelCell(i)).join(''))+'<p>Min and max show captured ranges during this local check. Center and direction come from the controller.</p></section>';
   }
   function esc(){
@@ -219,6 +219,7 @@ export function mount(root) {
     if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;step=Number(el.dataset.step);draw();}return;}
     switch(el.dataset.act){
       case 'full':last?.fullConsole();break;
+      case 'check-tx':last?.checkTransmitter();break;
       case 'next':case 'back':if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;step=Math.max(0,Math.min(9,step+(el.dataset.act==='next'?1:-1)));draw();break;
       case 'rotate':sceneOrbit=(sceneOrbit+45)%360;break;
       case 'pose':case 'gyro':if(last&&gate(last)&&confirmed&&last.snapshot.imu)sensor.begin(el.dataset.act==='pose'?pose:'gyro',last.clock,last.group(6));break;

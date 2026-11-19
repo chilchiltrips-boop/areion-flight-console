@@ -1,4 +1,5 @@
 import {airframe} from './airframe.js';
+import {mountTxEvidence} from './tx-evidence.js';
 
 const HEALTH = ['TELEMETRY','INPUT','PPM','AP','USB','IMU','OUTPUT','CONFIG','LOOP','MODE','ARM','STORAGE'];
 const state = (label,level='warn') => ({label,level});
@@ -60,6 +61,7 @@ export function mountFlightExtra(root) {
   const controls=action('Transmitter controls',()=>ctx?.fullConsole?.());
   controls.title='Open the interactive transmitter with keyboard, mode and sender controls.';
   rxViews.append(showTx,showMap,controls);receiver.querySelector('header').after(rxViews);receiver.append(map);setView('tx');
+  const transmitter=mountTxEvidence(rxViews);
   const tools=make('div','flight-choices flight-topline');
   const zeroBtn=action('Zero yaw',()=>{if(lastYaw!=null){zero=lastYaw; refresh(ctx);}});
   const expand=action('Expand health',()=>{
@@ -93,8 +95,13 @@ export function mountFlightExtra(root) {
     if(poseData)airframe(canvas,'areion450',[poseData.roll,poseData.pitch,poseData.yaw??0]);
     else if(canvas.dataset.pose!=='offline'){canvas.dataset.pose='offline';canvas.getContext('2d')?.clearRect(0,0,canvas.width,canvas.height);}
     const statuses=healthReadout(s,ctx.group,ctx.replay||ctx.state==='connected');
+    const tx=transmitter.update(ctx);
+    if(tx.code==='off' && tx.label==='TX OFF' && statuses.INPUT.level!=='bad') {
+      statuses.INPUT=statuses.PPM=state('TX OFF');
+      if(statuses.MODE.level==='good')statuses.MODE=state(statuses.MODE.label);
+    }
     for(const key of HEALTH){const pair=labels[key],v=statuses[key];pair.box.dataset.tone=v.level;pair.value.textContent=v.label;}
-    labels.PPM.box.title='PPM pulses reported by the kit. For verified radio power/loss, use Check transmitter in the full console.';
+    labels.PPM.box.title=tx.detail;
   }
-  return {update:refresh};
+  return {update:refresh,transmitter};
 }

@@ -70,6 +70,7 @@ const link=new UsbTelemetry({
     state=s.state;statusMessage=s.message||'';
     shell.log(statusMessage || state);
     if(state==='opening')newConnection=true;
+    if(['opening','offline','error','stale'].includes(state))flightExtra.transmitter.reset();
     if(state==='handshake'){live=new Instruments();shell.reset('usb');}
     if(state==='connected'&&newConnection){
       live=new Instruments();recording=[];packetCount=0;newConnection=false;
@@ -125,10 +126,12 @@ function render(){
     const ctx={model,clock,state:replay?'replay':state,replay:!!replay,snapshot:s,events:shell.events,
       get rows(){return replay?replay.rows.slice(0,replay.index):recording;},
       group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
-      fullConsole:()=>shell.fullConsole(),navigate:view,toggleUsb:()=>$('connect').click(),
+      fullConsole:()=>shell.fullConsole(), checkTransmitter:()=>flightExtra.transmitter.open(ctx),
+      navigate:view,toggleUsb:()=>$('connect').click(),
       openRecording:()=>view('record')};
     if(updateShell){shell.update(ctx);lastShellUpdate=now;}
     if(page==='flight')flightExtra.update(ctx);
+    else if(flightExtra.transmitter.isOpen())flightExtra.transmitter.update(ctx);
   }
   if(page!=='flight')return;
   text($('arm'),s.status?s.status[0]?'Armed':'Disarmed':'Unknown');
