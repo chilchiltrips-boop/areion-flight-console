@@ -36,6 +36,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1
           python -m pip install 'PySide6-Essentials>=6.6,<7' 'pyserial>=3.5,<4'
           python -m unittest discover -s tests -p 'host_*.py'
           sh -n './Start Areion.command'
