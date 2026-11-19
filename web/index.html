@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101a24">
+<title>Areion Flight Console</title>
+<link rel="icon" href="./assets/areion-mark.png"><link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<header class="mast">
+  <div class="identity"><img src="./assets/areion-mark.png" alt=""><div><strong>AREION</strong><span>Flight Console</span></div></div>
+  <nav aria-label="Console pages">
+    <button class="nav active" id="flight-tab" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 13h5l2-7 4 13 2-9 2 3h5"/></svg>Flight data</button>
+    <button class="nav" id="record-tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>Recordings</button>
+  </nav>
+  <div class="head-actions"><span class="chip" id="link-state" role="status">Offline</span><button class="primary" id="connect"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5m6-5v5M6 8h12v2a6 6 0 0 1-5 6v5h-2v-5a6 6 0 0 1-5-6z"/></svg><span>Connect USB</span></button></div>
+</header>
+<main>
+  <section class="heading"><div><div class="kicker"><span class="mark"></span>AREION FC A1</div><h1 id="page-title">Flight data</h1></div>
+    <div class="head-meta"><span>Transport<strong id="transport">USB serial</strong></span><span>Firmware<strong id="fw">—</strong></span></div>
+  </section>
+  <p id="notice" role="status" hidden></p>
+  <div id="replay" class="replay" hidden><strong>Recorded session</strong><button id="play">Play</button><input type="range" id="seek" aria-label="Recording time" min="0" max="1000" value="0"><span id="play-time">0:00</span><button id="close-replay">Close replay</button></div>
+  <div id="flight-page">
+    <section class="summary" aria-label="Flight status">
+      <div><span>Arm status</span><strong id="arm">Unknown</strong></div><div><span>Flight mode</span><strong id="mode">—</strong></div><div><span>Control input</span><strong id="source">—</strong></div><div><span>Loop rate</span><strong id="loop">—</strong></div>
+    </section>
+    <div class="deck">
+      <section class="panel attitude"><header><div class="title"><i class="panel-mark"></i><h2>Attitude</h2></div><span class="eyebrow" id="att-state">NO DATA</span></header>
+        <div class="instrument" id="instrument" role="img" aria-label="Attitude indicator awaiting telemetry">
+        <svg viewBox="0 0 640 236" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs><linearGradient id="sky" x2="0" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#1d455e"/><stop offset="1" stop-color="#4a94a8"/></linearGradient><linearGradient id="earth" x2="0" y2="1"><stop stop-color="#8c7853"/><stop offset="1" stop-color="#3d3530"/></linearGradient></defs>
+          <g id="att-plane"><rect x="-800" y="-1000" width="2300" height="1118" fill="url(#sky)"/><rect x="-800" y="118" width="2300" height="1118" fill="url(#earth)"/><path d="M-800 118h2300" stroke="#f9e2a7" stroke-width="2"/><g id="pitch-lines"></g></g>
+          <g id="bank-ticks"></g><path d="M320 34l-5 8h10z" fill="#ffbf66"/>
+          <g fill="none" stroke="#ffbc63" stroke-width="3.2" stroke-linecap="round"><path d="M245 118h44l13 9m36 0 13-9h44"/><circle cx="320" cy="118" r="4.5"/></g>
+        </svg>
+        <div id="instrument-cover"><span>Awaiting attitude</span></div>
+        </div>
+        <div class="readouts"><div><span>Roll</span><b id="roll">—</b></div><div><span>Pitch</span><b id="pitch">—</b></div><div><span>Relative yaw</span><b id="yaw">—</b></div></div>
+      </section>
+      <section class="panel receiver"><header><div class="title"><i class="panel-mark"></i><h2>Receiver</h2></div><span class="eyebrow" id="rx-state">NO DATA</span></header>
+        <div class="sticks" aria-label="Read-only receiver sticks"><div><div class="gimbal" id="left"><i></i></div><span>Yaw / Throttle</span></div><div><div class="gimbal" id="right"><i></i></div><span>Roll / Pitch</span></div></div>
+        <div class="channels" id="channels"></div>
+      </section>
+      <section class="panel health"><header><div class="title"><i class="panel-mark"></i><h2>System health</h2></div><span class="eyebrow" id="health-source">TELEMETRY</span></header><div class="tiles" id="tiles"></div></section>
+      <section class="panel motors"><header><div class="title"><i class="panel-mark"></i><h2>Motor outputs</h2></div><span class="eyebrow">COMMAND · µs</span></header><div class="motors-list" id="motors"></div></section>
+    </div>
+  </div>
+  <section id="record-page" hidden aria-labelledby="page-title">
+    <div class="panel"><header><div class="title"><i class="panel-mark"></i><h2>Session recordings</h2></div></header>
+      <div class="record-body"><p>Open an Areion telemetry CSV to replay a saved flight, or export the packets received over USB.</p>
+      <div class="record-actions"><button class="primary" id="import">Open CSV</button><button id="export" disabled>Export USB session</button></div>
+      <input type="file" accept=".csv,text/csv" id="file" hidden><p id="record-detail" class="muted">No telemetry recorded.</p></div></div>
+  </section>
+  <footer><span>Areion Flight Console <span class="footer-divider">/</span> Web telemetry</span><span id="frames">0 packets</span></footer>
+</main>
+<script type="module" src="./app.js"></script>
+</body></html>
