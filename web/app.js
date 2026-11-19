@@ -1,5 +1,7 @@
 import { UsbTelemetry } from './usb.js';
 import { Instruments } from './instruments.js';
+import { mountFlightExtra } from './flight-extra.js';
+import { ConsoleShell } from './shell.js';
 import { MAX_CSV_BYTES, parseCsv, serialize } from './records.js';
 
 const $ = id => document.getElementById(id);
@@ -14,7 +16,9 @@ let packetCount = 0;
 let state = 'offline';
 let statusMessage = '';
 let replay = null;
-let page = 'flight';
+let page = 'welcome';
+let lastShellUpdate = -Infinity;
+const flightExtra = mountFlightExtra($('flight-page'));
 let nextPaint = 0;
 let newConnection = false;
 
@@ -45,35 +49,28 @@ function makeRow(id,name,kind) {
 }
 const channelEls=Array.from({length:8},(_,i)=>makeRow('channels','CH'+(i+1),'chan'));
 const motorEls=Array.from({length:4},(_,i)=>makeRow('motors','M'+(i+1),'motor'));
-const healthEls={};
-for(const [key,title] of Object.entries({telemetry:'Telemetry',input:'Control input',sensor:'IMU / I²C',output:'Motor output',setup:'Configuration',storage:'FC storage'})){
-  const el=document.createElement('div');el.className='tile';
-  const name=document.createElement('b');name.textContent=title;
-  const value=document.createElement('span');value.textContent='Waiting';
-  el.append(name,value);$('tiles').append(el);healthEls[key]={el,value};
-}
 function text(el,value){if(el.textContent!==value)el.textContent=value;}
 function notice(message){$('notice').hidden=!message;text($('notice'),message||'');}
-function view(name){
-  page=name;
-  $('flight-page').hidden=name!=='flight';$('record-page').hidden=name!=='record';
-  text($('page-title'),name==='flight'?'Flight data':'Recordings');
-  for(const tab of ['flight','record']){
-    const active=tab===name;
-    const el=$(tab+'-tab');el.classList.toggle('active',active);
-    if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');
-  }
-  render();
+const shell = new ConsoleShell({
+  select(next){
+    page=next;
+    lastShellUpdate=-Infinity;
+    render();
+  },
+  toggleUsb:()=> $('connect').click(),
+  disconnectUsb:async()=>{if(['opening','handshake','connected','stale'].includes(state))await link.disconnect();}
+});
+const view=route=>shell.navigate(route);
+function dropReplay(){
+  if(replay)shell.reset('usb');
+  replay=null;$('replay').hidden=true;
 }
-$('flight-tab').onclick=()=>view('flight');
-$('record-tab').onclick=()=>view('record');
-
-function dropReplay(){replay=null;$('replay').hidden=true;}
 const link=new UsbTelemetry({
   onStatus(s){
     state=s.state;statusMessage=s.message||'';
+    shell.log(statusMessage || state);
     if(state==='opening')newConnection=true;
-    if(state==='handshake')live=new Instruments();
+    if(state==='handshake'){live=new Instruments();shell.reset('usb');}
     if(state==='connected'&&newConnection){
       live=new Instruments();recording=[];packetCount=0;newConnection=false;
     }
@@ -85,7 +82,7 @@ const link=new UsbTelemetry({
     notice(['error','stale'].includes(state)?statusMessage:'');render();
   },
   onData(row){
-    live.push(row);packetCount++;recording.push(row);
+    live.push(row);packetCount++;recording.push(row);shell.onPacket(row,'usb');
     // Drop in chunks to keep constant memory without shifting on every frame.
     if(recording.length>5000)recording.splice(0,250);
   }
@@ -115,7 +112,6 @@ function render(){
   const clock=replay?replay.position:performance.now();
   const model=replay?replay.model:state==='connected'?live:EMPTY;
   const s=model.snapshot(clock);
-  const canRead=!!replay||state==='connected';
   text($('fw'),s.firmware||'—');
   text($('transport'),replay?'CSV replay':'USB serial');
   text($('frames'),(replay?replay.index:packetCount).toLocaleString()+' packets');
@@ -123,30 +119,38 @@ function render(){
   text($('record-detail'),recording.length?`${recording.length.toLocaleString()} USB packets available to export.`:'No USB telemetry recorded.');
   $('import').disabled=['opening','handshake','connected','stale'].includes(state);
   $('import').title=$('import').disabled?'Disconnect USB to open a recording.':'Open desktop or web console telemetry';
+  const now=performance.now();
+  const updateShell=now-lastShellUpdate>=150;
+  if(updateShell||page==='flight'){
+    const ctx={model,clock,state:replay?'replay':state,replay:!!replay,snapshot:s,events:shell.events,
+      get rows(){return replay?replay.rows.slice(0,replay.index):recording;},
+      group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
+      fullConsole:()=>shell.fullConsole(),navigate:view,toggleUsb:()=>$('connect').click(),
+      openRecording:()=>view('record')};
+    if(updateShell){shell.update(ctx);lastShellUpdate=now;}
+    if(page==='flight')flightExtra.update(ctx);
+  }
   if(page!=='flight')return;
   text($('arm'),s.status?s.status[0]?'Armed':'Disarmed':'Unknown');
   text($('mode'),s.status?s.status[1]?'Angle':'Rate / Acro':'—');text($('source'),s.source||'—');text($('loop'),s.loop?Math.round(s.loop)+' Hz':'—');
   const imu=s.imu;$('instrument').dataset.valid=String(!!imu);$('instrument-cover').hidden=!!imu;
-  $('instrument').setAttribute('aria-label',imu?`Roll ${angle(imu.roll)}, pitch ${angle(imu.pitch)}, relative yaw ${angle(imu.yaw)}`:'Attitude indicator awaiting telemetry');
-  text($('att-state'),imu?(replay?'RECORDED IMU':'LIVE IMU'):'NO DATA');text($('roll'),angle(imu?.roll));text($('pitch'),angle(imu?.pitch));text($('yaw'),angle(imu?.yaw));
+  $('instrument').setAttribute('aria-label',imu?`Roll ${angle(imu.roll)}, pitch ${angle(imu.pitch)}, relative yaw ${$('yaw').textContent}`:'Attitude indicator awaiting telemetry');
+  text($('att-state'),imu?(replay?'RECORDED IMU':'LIVE IMU'):'NO DATA');text($('roll'),angle(imu?.roll));text($('pitch'),angle(imu?.pitch));
   $('att-plane').setAttribute('transform',imu?`rotate(${-imu.roll} 320 118) translate(0 ${imu.pitch*3})`:'');
   // Group 22 contains accepted, normalized roll, pitch, throttle, yaw and AUX.
   const ch=s.channels;positionStick('left',ch?.[3],ch?.[2]);positionStick('right',ch?.[0],ch?.[1]);bars(channelEls,ch);bars(motorEls,s.motor);
   text($('rx-state'),ch?(replay?'RECORDED · µs':'ACCEPTED · µs'):'NO DATA');
   text($('health-source'),replay?'REPLAY':'TELEMETRY');
-  for(const [key,{el,value}] of Object.entries(healthEls)){
-    const v=s.health[key];el.dataset.tone=canRead?v.level:'idle';text(value,canRead?v.label:'Offline');
-    if(key==='input')el.title=s.source==='PPM'
-      ? 'Reports pulses accepted by the controller. A receiver can keep sending them after transmitter loss. The desktop console can verify this receiver’s loss signal.'
-      : 'Flight control input reported by the controller.';
-  }
+
 }
 
 function advance(target,seek=false){
   if(!replay)return;
-  if(seek&&target<replay.position){replay.model=new Instruments();replay.index=0;}
-  while(replay.index<replay.rows.length&&replay.rows[replay.index].at<=target)
-    replay.model.push(replay.rows[replay.index++]);
+  if(seek&&target<replay.position){replay.model=new Instruments();replay.index=0;shell.reset('replay');}
+  while(replay.index<replay.rows.length&&replay.rows[replay.index].at<=target){
+    const row=replay.rows[replay.index++];
+    replay.model.push(row);shell.onPacket(row,'replay');
+  }
   replay.position=target;
   $('seek').value=String(target);
   text($('play-time'),elapsed(target)+' / '+elapsed(replay.duration));
@@ -163,7 +167,7 @@ $('file').onchange=async()=>{
     if(['opening','handshake','connected','stale'].includes(state))throw new Error('Disconnect USB to open a recording.');
     replay={rows,model:new Instruments(),index:0,duration:rows.at(-1).at,position:0,playing:false,startedAt:0};
     $('replay').hidden=false;$('seek').max=String(replay.duration);$('play').disabled=replay.duration===0;
-    pause();advance(0);notice('');view('flight');
+    shell.reset('replay');shell.log('Opened recording · '+file.name);pause();advance(0);notice('');view('flight');
   }catch(e){notice(e.message);}
 };
 $('seek').oninput=()=>{pause();advance(Number($('seek').value),true);render();};
@@ -188,4 +192,4 @@ function tick(now){
   }
   requestAnimationFrame(tick);
 }
-render();requestAnimationFrame(tick);
+shell.start();render();requestAnimationFrame(tick);

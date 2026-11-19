@@ -1,0 +1,24 @@
+#flight-page .flight-choices{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.55rem .8rem}
+#flight-page .flight-topline{justify-content:flex-end;padding:.3rem 0 .6rem}
+.flight-action{font:600 .8rem system-ui;border:1px solid #426270;background:#233b48;color:#e4efef;border-radius:5px;padding:.42rem .72rem;cursor:pointer}
+.flight-action[aria-pressed=true]{color:#b3fff1;background:#24534f;border-color:#75c4b5}
+.flight-action:disabled{opacity:.55;cursor:default}.tilt-readout{color:#accccd;font-size:.82rem;margin-right:auto}
+.flight-gps{margin:.65rem .8rem 1rem;background:#182f39;position:relative;min-height:180px;display:grid;align-items:center;overflow:hidden;border-radius:6px}
+.flight-gps img{width:100%;max-height:300px}.flight-gps span{position:absolute;bottom:.65rem;left:.65rem;background:#122028;color:#d9e7e8;border:1px solid #46606b;border-radius:4px;padding:.35rem .6rem;font-size:.8rem}
+#flight-page [hidden]{display:none!important}
+#flight-page .flight-pose canvas{width:100%;height:170px;display:block;background:linear-gradient(175deg,#142c34,#101c24)}
+.pose-values{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;text-align:center;padding:.55rem;color:#e7eeee}
+.pose-values span,.pose-values b{display:block}.pose-values span{font-size:.66rem;color:#9cb5bb}.pose-values b{font-size:1rem}
+#flight-page .tiles{grid-template-columns:repeat(4,minmax(0,1fr))}
+#flight-page .tiles .tile{min-height:50px;padding:.34rem .5rem}
+#flight-page .tiles .tile[data-tone=good]{background:#116536;color:white}
+#flight-page .tiles .tile[data-tone=warn]{background:#e99436;color:#2b1b0c}
+#flight-page .tiles .tile[data-tone=warn] b{color:#2b1b0c}
+#flight-page .tiles .tile[data-tone=bad]{background:#a03140;color:white}
+#flight-page .motors{grid-column:1/-1}
+#flight-page.expanded-health .attitude{display:none}
+#flight-page.expanded-health .flight-pose canvas{height:235px}
+#flight-page.expanded-health .health{grid-column:1/-1}
+@media(max-width:740px){#flight-page .tiles{grid-template-columns:repeat(3,minmax(0,1fr))}#flight-page .health{grid-row:auto}}
+
+.flight-pose{position:relative}.pose-wait{position:absolute;top:46%;left:0;right:0;text-align:center;color:#bdd5d7;font-size:.9rem;pointer-events:none}

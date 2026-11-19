@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <title>Areion Flight Console</title>
+  <link rel="stylesheet" href="/client.css">
+  <script src="/client.js" defer></script>
+</head>
+<body>
+  <main id="workspace" aria-label="Areion flight console">
+    <canvas id="screen" width="1380" height="930" tabindex="0" role="application" aria-label="Areion console. Click to interact or press Tab to move through controls."></canvas>
+    <div id="status-panel" class="veil">
+      <section class="message">
+        <h1 id="status-heading">Opening Areion Flight Console…</h1>
+        <p id="status-detail" role="status"></p>
+        <button id="resume" hidden>Reconnect</button>
+      </section>
+    </div>
+  </main>
+  <footer aria-label="Browser controls">
+    <span id="notice" role="status" aria-live="polite"></span>
+    <button id="keyboard-toggle" type="button" aria-controls="keyboard" aria-expanded="false">Keyboard</button>
+    <input id="keyboard" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Type into the selected console field" hidden>
+    <button id="clipboard" type="button">Copy console clipboard</button>
+    <button id="size-toggle" type="button" hidden>Actual size</button>
+    <button id="pan-toggle" type="button" aria-pressed="false" hidden>Pan</button>
+    <button id="fullscreen" type="button" hidden>Full screen</button>
+  </footer>
+  <dialog id="clipboard-dialog">
+    <h2>Console clipboard</h2>
+    <p>Select and copy the text to your device.</p>
+    <textarea id="clipboard-value" readonly aria-label="Console clipboard contents"></textarea>
+    <form method="dialog"><button>Close</button></form>
+  </dialog>
+</body>
+</html>
