@@ -48,7 +48,7 @@ const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 export class ConfigPanel {
   constructor(root,local){
     this.root=root;this.local=local;this.draft=new Map();this.base=new Map();this.confirm=new Set();this.knownKit=null;
-    this.status='';this.epoch=0;this.busy=false;this.entered=false;this.mask=1;this.pulse=1000;this.minima=new Map();
+    this.pendingMotorStop=null;this.status='';this.epoch=0;this.busy=false;this.entered=false;this.mask=1;this.pulse=1000;this.minima=new Map();
     root.addEventListener('input',e=>this.edit(e.target));
     root.addEventListener('change',e=>this.edit(e.target));
     root.addEventListener('click',e=>{
@@ -83,19 +83,26 @@ export class ConfigPanel {
   pulseDisplay(){const out=this.root.querySelector('[data-pulse-read]');if(out)out.textContent=this.pulse+' µs';}
   info(text,bad=false){this.status=text;this.bad=bad;const slot=this.root.querySelector('[data-operation]');if(slot){slot.textContent=text;slot.classList.toggle('cfg-error',bad);}}
   suspend({emergency=false}={}){
-    this.epoch++;this.busy=false;this.stopMotor(emergency);
+    this.epoch++;this.busy=false;const stopped=this.stopMotor(emergency);
     if(this.status==='Working…')this.info('Action interrupted. Read the kit before retrying.',true);
     this.confirm.clear();this.local.clearCaptures();
+    return stopped;
   }
   pageChange(){this.suspend();this.info('');}
   reset(){this.suspend();this.entered=false;this.ctx=null;this.draft.clear();this.base.clear();this.minima.clear();this.knownKit=null;}
   stopMotor(skipCommand=false){
     const motor=this.motor;this.motor=null;this.pulse=1000;
     if(motor){clearInterval(motor.timer);
-      if(!skipCommand && motor.session===motor.link.session)
-        motor.link.action(135,['MOTOR_STOP',0,0,0,0]).catch(e=>this.info('Motor STOP unconfirmed: '+e.message,true));
+      if(!skipCommand && motor.session===motor.link.session){
+        const request=motor.link.action(135,['MOTOR_STOP',0,0,0,0])
+          .then(ack=>{if(ack[0]!=='STOPPED')throw Error('Unexpected controller reply.');})
+          .catch(error=>this.info('Motor STOP unconfirmed: '+error.message,true))
+          .finally(()=>{if(this.pendingMotorStop===request)this.pendingMotorStop=null;});
+        this.pendingMotorStop=request;
+      }
     }
     const slide=this.root.querySelector('[data-pulse]');if(slide)slide.value='1000';this.pulseDisplay();
+    return this.pendingMotorStop;
   }
   motorOk(){
     const s=this.fresh(130);
@@ -107,7 +114,8 @@ export class ConfigPanel {
     const motor={link:op.link,session:op.session,mask,started:performance.now(),sending:false,ready:false};this.motor=motor;
     return (async()=>{
       try{
-        await op.call('action',135,['MOTOR_START',mask,1,0,0]);
+        const ack=await op.call('action',135,['MOTOR_START',mask,1,0,0]);
+        if(ack[0]!=='MOTOR_TEST_STARTED')throw Error('Motor test start unconfirmed.');
         if(this.motor!==motor||!this.motorOk())throw Error('Motor start interrupted.');
         motor.ready=true;
         const tick=async()=>{
@@ -142,7 +150,7 @@ export class ConfigPanel {
     const s=this.fresh(130),cfg=this.ctx?.group(134),a=this.local.state(),check=k=>this.confirm.has(k);
     if(key==='motor-stop')return Boolean(this.motor||s?.[8])&&this.live;
     if(key==='stop-esc')return this.live && s && [1,2,3,6].includes(s[3]);
-    if(this.busy||this.motor && key!=='record-min')return false;
+    if(this.busy||this.pendingMotorStop||this.motor && key!=='record-min')return false;
     if(/^(read|saved|revert)-[23]$/.test(key))return this.live;
     if(key==='pid-2'||key==='pid-3')return this.live&&this.armed!=null&&(!this.armed||check('bench'))&&Boolean(this.ctx.group(Number(key.slice(-1))));
     if(key==='source'&&a.page!=='wizard')return this.live&&this.armed===false&&cfg;

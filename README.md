@@ -1,6 +1,6 @@
 # Areion Flight Console
 
-[Open Flight Data](https://chilchiltrips-boop.github.io/areion-flight-console/#flight) · [Open the setup wizard](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/setup)
+[Open Flight Data](https://chilchiltrips-boop.github.io/areion-flight-console/#flight) · [Open the setup wizard](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/wizard)
 
 The GitHub Pages application runs in the browser and talks directly to the Areion FC A1. The laptop needs only a compatible browser. The two-row header contains the link state, arming status, DISARM / STOP, navigation, TX/RX frame rates, transport selector, port chooser and manual connection controls.
 
@@ -8,7 +8,7 @@ The GitHub Pages application runs in the browser and talks directly to the Areio
 
 - **USB.** Use desktop Chrome or Edge. Connect the kit by USB, choose **USB ports → Choose a new port…**, grant access to the board and press **Connect**. Close other applications using the same port. The list updates when devices are attached or removed. The console remembers the last confirmed USB type. If several identical adapters are present, choose the intended one. The browser may identify a port by vendor and product IDs.
 - **AP Wi-Fi.** Stock 3.2.0 firmware provides a UDP endpoint for desktop clients. Direct access from this website requires the optional [browser AP firmware](firmware/README.md) on the kit. Open the console online first and allow it to finish preparing for offline use. Join the kit’s Wi-Fi, select **AP Wi-Fi**, use the default kit address and press **Connect**. Allow local network access when prompted by your browser.
-- **Recordings.** Use **Flight Data → Recordings** to import a telemetry CSV or export the current session. Replay drives the instruments and plots from recorded packets. Hardware commands require a live controller.
+- **Recordings.** Use **Flight Data → Controls → Recordings** to import a telemetry CSV or export the current session. Replay drives the instruments and plots from recorded packets. Hardware commands require a live controller.
 
 The header chooses the link to the kit. **Flight Data → Save input** independently selects PPM, AP or USB flight input. Switching input preserves the rest of the setup. Disarm the kit and stop its sender before changing input.
 

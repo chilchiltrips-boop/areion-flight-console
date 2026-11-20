@@ -84,3 +84,17 @@ test('suspending a motor test releases its lease, with emergency DISARM taking p
  p.motor={link:l,session:5,timer:0};p.suspend({emergency:true});assert.equal(calls.length,1);
  p.motor={link:l,session:2,timer:0};p.suspend();assert.equal(calls.length,1);
 });
+test('disconnect can wait for the same motor stop after a focus change',async()=>{
+ const {ConfigPanel}=await import('../web/config-panel.js');
+ const root={addEventListener(){},querySelector(){return null;}};
+ const panel=new ConfigPanel(root,{clearCaptures(){}});
+ let confirm;
+ const link={session:7,action:()=>new Promise(resolve=>{confirm=resolve;})};
+ panel.motor={link,session:7,timer:0};
+ const first=panel.suspend();
+ assert.ok(first instanceof Promise);
+ assert.equal(panel.suspend(),first);
+ confirm(['STOPPED']);
+ await first;
+ assert.equal(panel.suspend(),null);
+});

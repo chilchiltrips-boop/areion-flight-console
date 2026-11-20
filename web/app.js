@@ -113,8 +113,8 @@ window.addEventListener('blur', leaveControls);
 window.addEventListener('pagehide', leaveControls);
 document.addEventListener('visibilitychange', () => { if (document.hidden) leaveControls(); });
 async function disconnect() {
-  if (flightExtra.running) {
-    try { await stopKit(); } catch (error) { log(error.message); }
+  if (flightExtra.running || stopPending) {
+    try { await (stopPending || stopKit()); } catch (error) { log(error.message); }
   }
   const pending = shell.modules.get('configuration')?.suspend?.();
   if (pending) await Promise.resolve(pending).catch(error => log(error.message));

@@ -76,7 +76,7 @@ export class WifiPort {
       socket.onopen = () => {
         if (socket.protocol !== SUBPROTOCOL) return fail(errorHint);
         poll();
-        this.pollTimer = setInterval(poll, POLL_MS);
+        if (this.socket === socket) this.pollTimer = setInterval(poll, POLL_MS);
       };
       socket.onmessage = ({data}) => {
         if (socket !== this.socket) return;
