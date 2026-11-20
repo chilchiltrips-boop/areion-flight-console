@@ -15,10 +15,7 @@
   <p id="notice" role="status" hidden></p>
   <div id="replay" class="replay" hidden><strong>Recorded session</strong><button id="play">Play</button><input type="range" id="seek" aria-label="Recording time" min="0" max="1000" value="0"><span id="play-time">0:00</span><button id="close-replay">Close replay</button></div>
   <section id="welcome-page" aria-labelledby="welcome-title">
-    <div class="welcome-heading">
-      <h1 id="welcome-title">Welcome</h1>
-      <a class="assembly-shortcut" href="#assembly">3D assembly guide <span aria-hidden="true">→</span></a>
-    </div>
+    <h1 id="welcome-title">Welcome</h1>
     <div class="launcher">
       <div class="brand-tile"><img src="./assets/console/areion-mark.webp" alt=""><strong>AREION</strong><span>Flight Console</span></div>
       <button class="launch-tile tool-flight" data-route="flight"><img src="./assets/console/launch-flight.svg" alt="">Flight Data</button>
@@ -28,6 +25,7 @@
       <button class="launch-tile tool-pid" data-route="configuration/pid"><img src="./assets/console/launch-pid.svg" alt="">PID settings</button>
       <button class="launch-tile tool-scopes" data-route="scopes"><img src="./assets/console/launch-scopes.svg" alt="">Scopes</button>
 
+      <button class="launch-tile assembly-tile" data-route="assembly"><img src="./assets/console/nav-assembly.svg" alt=""><strong>Assembly</strong></button>
       <button class="launch-tile wizard-tile" data-route="configuration/wizard"><img src="./assets/console/launch-wizard.svg" alt=""><strong id="welcome-wizard-title">Vehicle setup wizard</strong></button>
     </div>
     <div class="welcome-summary">
