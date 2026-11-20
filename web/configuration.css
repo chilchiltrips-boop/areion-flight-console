@@ -36,3 +36,20 @@
 @media(max-width:620px){.cfg-grid{grid-template-columns:1fr}.cfg-tabs button{padding:.4rem .55rem;font-size:.84rem}.cfg-steps{margin-bottom:.3rem}.cfg-kv{font-size:.88rem}}
 @media(prefers-reduced-motion:reduce){.cfg-page *{transition:none!important}}
 .cfg-response{display:block;width:100%;height:150px;margin:.6rem 0;border-radius:4px}.cfg-meas{color:#71dac4}.cfg-target{color:#ffb66b}
+.cfg-edit{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin:.44rem 0;font-size:.9rem}
+.cfg-edit select,.cfg-edit input{min-width:6rem}.cfg-edit output{font-variant-numeric:tabular-nums}
+.cfg-edit input[type=range]{width:min(55%,320px);accent-color:#72d9c3}
+.cfg-operation{min-height:1.45em;margin:.55rem .2rem;color:#9bdfca;font-size:.9rem}.cfg-operation.cfg-error{color:#ffc284}
+.cfg-session{padding:.5rem .75rem;background:#182c35;border-radius:6px;margin-bottom:.65rem}
+.cfg-pid{padding:.75rem;border-radius:.65rem;background:#e7eeea;color:#1e3d46}
+.cfg-pid-head,.pid-line,.cfg-pid-state{display:flex;align-items:center;justify-content:space-between;gap:.6rem}
+.cfg-pid-head{margin-bottom:.55rem}.cfg-pid-head h2{margin:0;display:flex;align-items:center;gap:.45rem;font-size:1.25rem}.cfg-pid-head h2 img{background:#245256;border-radius:.3rem;width:32px;height:32px;padding:4px}
+.cfg-pid .cfg-tabs{margin:0;padding:0;flex-wrap:wrap;background:transparent;border:0}.cfg-pid .cfg-tabs button{border:0;background:transparent;color:#385a5d}.cfg-pid .cfg-tabs button[aria-pressed=true]{background:#285e56;color:white}
+.cfg-pid .cfg-card,.cfg-pid-state{color:#edf5f4;background:#162c36;border-color:#314d58}.cfg-pid-state{padding:.45rem .75rem;border-radius:.35rem;font-size:.85rem;margin-bottom:.5rem}.cfg-pid-state label{margin:0}
+.cfg-pid-matrices,.cfg-gain-plots{display:grid;gap:.55rem;grid-template-columns:1fr 1fr}.cfg-gain-plots{grid-template-columns:2fr 1fr;margin-top:.55rem}
+.pid-matrix h3 small,.cfg-stick-preview small,.pid-matrix small,.pid-line label{color:#b6cbd0;font-weight:400;font-size:.81rem}
+.pid-matrix .cfg-table input{max-width:none;min-width:3rem;width:100%;text-align:center}
+.pid-matrix .cfg-table th,.pid-matrix .cfg-table td{padding:.27rem}.pid-matrix .cfg-table tbody th{font-size:.79rem}
+.pid-matrix .cfg-btn:last-child{margin-left:auto}.cfg-pid .cfg-tracking canvas{min-height:200px;height:calc(100% - 4.3rem)}
+.cfg-stick-preview svg{display:block;width:100%;max-height:200px;background:#10212b;border-radius:.35rem}.cfg-stick-preview svg line,.cfg-stick-preview svg path{fill:none;stroke:#48636c}.cfg-stick-preview svg text{font:9px system-ui;fill:#c9dcdd}.cfg-stick-preview svg .cfg-curve-line{stroke:#74dcca;stroke-width:2}.cfg-stick-preview svg .cfg-curve-base{stroke:#f4ba7e;stroke-dasharray:4 3}.cfg-curve-dot{fill:#15312f;stroke:#8eedcf}.cfg-stick-preview input{width:100%;accent-color:#74dcca;margin:.45rem 0}
+@media(max-width:860px){.cfg-pid-matrices,.cfg-gain-plots{grid-template-columns:1fr}.cfg-pid-head,.cfg-pid-state{flex-wrap:wrap}}

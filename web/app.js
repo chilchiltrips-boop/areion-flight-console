@@ -1,150 +1,174 @@
-import { UsbTelemetry } from './usb.js';
-import { Instruments } from './instruments.js';
-import { mountFlightExtra } from './flight-extra.js';
-import { ConsoleShell } from './shell.js';
-import { MAX_CSV_BYTES, parseCsv, serialize } from './records.js';
+import {UsbTelemetry} from './usb.js';
+import {WifiPort, DEFAULT_AP_URL} from './wifi.js';
+import {Instruments} from './instruments.js';
+import {mountHeader} from './header.js';
+import {mountFlightExtra} from './flight-extra.js';
+import {ConsoleShell} from './shell.js';
+import {saveFlightInput} from './config-commands.js';
+import {MAX_CSV_BYTES, parseCsv, serialize} from './records.js';
 
 const $ = id => document.getElementById(id);
-const svgNS = 'http://www.w3.org/2000/svg';
-const clamp = (v, min, max) => Math.max(min, Math.min(max,v));
-const elapsed = ms => Math.floor(ms/60000) + ':' + String(Math.floor(ms/1000) % 60).padStart(2,'0');
-const angle = v => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '°';
-const EMPTY = new Instruments();
+const elapsed = ms => Math.floor(ms / 60000) + ':' + String(Math.floor(ms / 1000) % 60).padStart(2,'0');
+const openStates = new Set(['opening','handshake','connected','stale']);
+const empty = new Instruments();
 let live = new Instruments();
-let recording = [];
-let packetCount = 0;
-let state = 'offline';
-let statusMessage = '';
-let replay = null;
-let page = 'welcome';
-let lastShellUpdate = -Infinity;
+let recording = [], packetCount = 0;
+let replay = null, state = 'offline', page = 'welcome', path = 'USB';
+let nextPaint = 0, lastShellUpdate = -Infinity;
+let connecting = false, stopPending = null;
 const flightExtra = mountFlightExtra($('flight-page'));
-let nextPaint = 0;
-let newConnection = false;
 
-function svg(tag, attributes, parent) {
-  const node = document.createElementNS(svgNS,tag);
-  Object.entries(attributes).forEach(([key,value]) => node.setAttribute(key,value));
-  parent.appendChild(node);
-  return node;
+function text(el, value) {
+  if (el.textContent !== value) el.textContent = value;
 }
-for (let deg = -60; deg <= 60; deg += 5) {
-  if (deg === 0) continue;
-  const major = deg % 10 === 0;
-  const y = 118 - deg * 3;
-  const half = major ? 29 : 13;
-  svg('path',{d:`M${320-half} ${y}h${half*2}`,stroke:'#f3f6ee','stroke-opacity':major ? '.85' : '.53','stroke-width':major ? 1.5 : 1},$('pitch-lines'));
-  if (major) svg('text',{x:320+half+6,y:y+3,fill:'#f3f6ee','font-size':9},$('pitch-lines')).textContent=deg;
+function notice(message) {
+  $('notice').hidden = !message;
+  text($('notice'), message || '');
+  if (message) log(message);
 }
-for (let deg=-60;deg<=60;deg+=10) {
-  svg('path',{d:'M320 22v'+(deg%30===0?9:5),transform:'rotate('+deg+' 320 118)',stroke:'#eff5ef','stroke-width':1.4},$('bank-ticks'));
+function log(message) {
+  if (!message) return;
+  shell.log(message);
+  text($('session-status'),message);
 }
-function makeRow(id,name,kind) {
-  const row=document.createElement('div'); row.className=kind;
-  const label=document.createElement('span');label.textContent=name;
-  const bar=document.createElement('div');bar.className='bar';bar.append(document.createElement('i'));
-  const value=document.createElement('b');value.textContent='—';
-  row.append(label,bar,value);$(id).append(row);
-  return {bar:bar.firstElementChild,value};
-}
-const channelEls=Array.from({length:8},(_,i)=>makeRow('channels','CH'+(i+1),'chan'));
-const motorEls=Array.from({length:4},(_,i)=>makeRow('motors','M'+(i+1),'motor'));
-function text(el,value){if(el.textContent!==value)el.textContent=value;}
-function notice(message){$('notice').hidden=!message;text($('notice'),message||'');}
 const shell = new ConsoleShell({
-  select(next){
-    page=next;
-    lastShellUpdate=-Infinity;
+  select(next) {
+    if (page === 'flight' && next !== page) stopSender('Left Flight Data');
+    page = next;
+    lastShellUpdate = -Infinity;
+    render();
+  }
+});
+const view = route => shell.navigate(route);
+function dropReplay() {
+  if (replay) shell.reset(path.toLowerCase());
+  replay = null;
+  $('replay').hidden = true;
+}
+const link = new UsbTelemetry({
+  onTraffic(sample) { header.traffic(sample); },
+  onPort(port) { header.confirmed(port); },
+  onStatus(update) {
+    state = update.state;
+    lastShellUpdate = -Infinity;
+    log(update.message || state);
+    if (state === 'opening') {
+      connecting = true;
+      flightExtra.transmitter.reset();
+    }
+    if (state === 'handshake') {
+      live = new Instruments();
+      shell.reset(path.toLowerCase());
+    }
+    if (state === 'connected' && connecting) {
+      connecting = false;
+      live = new Instruments();
+      recording = [];
+      packetCount = 0;
+      if (path === 'AP') header.confirmed();
+    }
+    if (['offline','error','stale'].includes(state)) {
+      if (state === 'stale') stopSender('Connection stale');
+      else flightExtra.cancelSender('Disconnected');
+      shell.modules.get('configuration')?.suspend?.();
+      flightExtra.transmitter.reset();
+    }
+    notice(['error','stale'].includes(state) ? update.message : '');
     render();
   },
-  toggleUsb:()=> $('connect').click(),
-  disconnectUsb:async()=>{if(['opening','handshake','connected','stale'].includes(state))await link.disconnect();}
+  onData(row) {
+    live.push(row);
+    recording.push(row);
+    packetCount++;
+    shell.onPacket(row,path.toLowerCase());
+    if (recording.length > 5000) recording.splice(0,250);
+  }
 });
-const view=route=>shell.navigate(route);
-function dropReplay(){
-  if(replay)shell.reset('usb');
-  replay=null;$('replay').hidden=true;
+
+function stopKit() {
+  if (stopPending) return stopPending;
+  if (replay || !['connected','stale'].includes(state)) {
+    return Promise.reject(Error('Connect the kit to verify DISARM.'));
+  }
+  flightExtra.cancelSender('DISARM / STOP');
+  shell.modules.get('configuration')?.suspend?.({emergency:true});
+  const session = link.session;
+  stopPending = (async () => {
+    const ack = await link.action(123,['DISARM']);
+    if (ack?.[0] !== 'DISARMED' || link.session !== session) throw Error('DISARM was not acknowledged by this kit.');
+    const status = await link.readGroup(120);
+    if (status?.[0] !== false || link.session !== session) throw Error('Disarmed status could not be verified.');
+    log('Kit disarmed · verified');
+  })().finally(() => { stopPending = null; });
+  return stopPending;
 }
-const link=new UsbTelemetry({
-  onStatus(s){
-    state=s.state;statusMessage=s.message||'';
-    shell.log(statusMessage || state);
-    if(state==='opening')newConnection=true;
-    if(['opening','offline','error','stale'].includes(state))flightExtra.transmitter.reset();
-    if(state==='handshake'){live=new Instruments();shell.reset('usb');}
-    if(state==='connected'&&newConnection){
-      live=new Instruments();recording=[];packetCount=0;newConnection=false;
+function stopSender(reason) {
+  if (flightExtra.cancelSender(reason)) void stopKit().catch(error => notice(error.message));
+}
+function leaveControls() {
+  stopSender('Controls released');
+  shell.modules.get('configuration')?.suspend?.();
+}
+window.addEventListener('blur', leaveControls);
+window.addEventListener('pagehide', leaveControls);
+document.addEventListener('visibilitychange', () => { if (document.hidden) leaveControls(); });
+async function disconnect() {
+  if (flightExtra.running) {
+    try { await stopKit(); } catch (error) { log(error.message); }
+  }
+  const pending = shell.modules.get('configuration')?.suspend?.();
+  if (pending) await Promise.resolve(pending).catch(error => log(error.message));
+  await link.disconnect();
+}
+async function connect(mode, endpoint) {
+  if (openStates.has(state)) return;
+  dropReplay();
+  notice('');
+  path = mode === 'ap' ? 'AP' : 'USB';
+  if (mode === 'ap') {
+    await link.connect(new WifiPort(endpoint || DEFAULT_AP_URL),{source:1,label:'AP Wi-Fi'});
+  } else {
+    await link.connect(endpoint);
+  }
+}
+const header = mountHeader(document.querySelector('.mast'),{
+  connect,disconnect,stop:stopKit,notice,apSupported:true,apDefault:DEFAULT_AP_URL
+});
+
+function render() {
+  const clock = replay ? replay.position : performance.now();
+  const model = replay ? replay.model : state === 'connected' ? live : empty;
+  const snapshot = model.snapshot(clock);
+  const count = replay ? replay.index : packetCount;
+  const route = openStates.has(state) ? path : header.mode.toUpperCase();
+  text($('fw'),snapshot.firmware || '—');
+  text($('transport'),replay ? 'CSV recording' : route === 'USB' ? 'USB serial' : 'AP Wi-Fi');
+  text($('frames'),count.toLocaleString()+' packets');
+  $('export').disabled = !recording.length;
+  text($('record-detail'),recording.length ? recording.length.toLocaleString()+' packets available to export.' : 'No telemetry recorded.');
+  $('import').disabled = openStates.has(state);
+  $('import').title = $('import').disabled ? 'Disconnect the kit to open a recording.' : 'Open a telemetry recording';
+  const now = performance.now(), refresh = now - lastShellUpdate >= 150;
+  if (!refresh && page !== 'flight') return;
+  const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
+    path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
+    get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},
+    group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
+    checkTransmitter:()=>flightExtra.transmitter.open(ctx),
+    navigate:view,toggleUsb:()=>header.toggle(),openRecording:()=>view('record'),message:log,stopKit,
+    saveInput: source => {
+      if (flightExtra.running || !link.fcSession || replay || state !== 'connected') throw Error('Stop the sender and connect a disarmed kit to save input.');
+      const host=link.session,fc=link.fcSession;
+      return saveFlightInput(link,source,{guard(){if (link.session!==host || link.fcSession!==fc || state!=='connected' || page!=='flight') throw Error('Input save interrupted. Read back the kit settings.');}});
     }
-    const stateName={offline:'Offline',opening:'Opening',handshake:'Connecting',connected:'Connected',stale:'Link stale',error:'USB error'};
-    text($('link-state'),stateName[state]||state);
-    $('link-state').dataset.tone=state==='connected'?'good':state==='error'?'bad':['handshake','stale'].includes(state)?'warn':'';
-    $('link-state').title=statusMessage;
-    text($('connect').lastElementChild,['opening','handshake','connected','stale'].includes(state)?'Disconnect':'Connect USB');
-    notice(['error','stale'].includes(state)?statusMessage:'');render();
-  },
-  onData(row){
-    live.push(row);packetCount++;recording.push(row);shell.onPacket(row,'usb');
-    // Drop in chunks to keep constant memory without shifting on every frame.
-    if(recording.length>5000)recording.splice(0,250);
+  };
+  if (refresh) {
+    header.update(ctx);
+    shell.update(ctx);
+    lastShellUpdate = now;
   }
-});
-$('connect').onclick=async()=>{
-  if(['opening','handshake','connected','stale'].includes(state)){
-    try{await link.disconnect();}catch(e){notice(e.message);}return;
-  }
-  if(!UsbTelemetry.supported()){notice('For USB, open this page in desktop Chrome or Edge. You can also open a telemetry CSV in Recordings.');return;}
-  dropReplay();notice('');
-  try{await link.connect();}catch(e){notice(e.message||'USB connection failed.');}
-};
-
-function positionStick(id,x,y) {
-  const el=$(id);const valid=Number.isFinite(x)&&Number.isFinite(y);
-  el.classList.toggle('live',valid);
-  if(valid){el.firstElementChild.style.left=clamp((x-1000)/10,5,95)+'%';el.firstElementChild.style.top=clamp((2000-y)/10,5,95)+'%';}
-}
-function bars(els,values){
-  els.forEach(({bar,value},i)=>{
-    const n=values?.[i];const valid=Number.isFinite(n);
-    text(value,valid?String(Math.round(n)):'—');
-    bar.style.width=(valid?clamp((n-1000)/10,0,100):0)+'%';
-  });
-}
-function render(){
-  const clock=replay?replay.position:performance.now();
-  const model=replay?replay.model:state==='connected'?live:EMPTY;
-  const s=model.snapshot(clock);
-  text($('fw'),s.firmware||'—');
-  text($('transport'),replay?'CSV replay':'USB serial');
-  text($('frames'),(replay?replay.index:packetCount).toLocaleString()+' packets');
-  $('export').disabled=!recording.length;
-  text($('record-detail'),recording.length?`${recording.length.toLocaleString()} USB packets available to export.`:'No USB telemetry recorded.');
-  $('import').disabled=['opening','handshake','connected','stale'].includes(state);
-  $('import').title=$('import').disabled?'Disconnect USB to open a recording.':'Open desktop or web console telemetry';
-  const now=performance.now();
-  const updateShell=now-lastShellUpdate>=150;
-  if(updateShell||page==='flight'){
-    const ctx={model,clock,state:replay?'replay':state,replay:!!replay,snapshot:s,events:shell.events,
-      get rows(){return replay?replay.rows.slice(0,replay.index):recording;},
-      group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
-      fullConsole:()=>shell.fullConsole(), checkTransmitter:()=>flightExtra.transmitter.open(ctx),
-      navigate:view,toggleUsb:()=>$('connect').click(),
-      openRecording:()=>view('record')};
-    if(updateShell){shell.update(ctx);lastShellUpdate=now;}
-    if(page==='flight')flightExtra.update(ctx);
-    else if(flightExtra.transmitter.isOpen())flightExtra.transmitter.update(ctx);
-  }
-  if(page!=='flight')return;
-  text($('arm'),s.status?s.status[0]?'Armed':'Disarmed':'Unknown');
-  text($('mode'),s.status?s.status[1]?'Angle':'Rate / Acro':'—');text($('source'),s.source||'—');text($('loop'),s.loop?Math.round(s.loop)+' Hz':'—');
-  const imu=s.imu;$('instrument').dataset.valid=String(!!imu);$('instrument-cover').hidden=!!imu;
-  $('instrument').setAttribute('aria-label',imu?`Roll ${angle(imu.roll)}, pitch ${angle(imu.pitch)}, relative yaw ${$('yaw').textContent}`:'Attitude indicator awaiting telemetry');
-  text($('att-state'),imu?(replay?'RECORDED IMU':'LIVE IMU'):'NO DATA');text($('roll'),angle(imu?.roll));text($('pitch'),angle(imu?.pitch));
-  $('att-plane').setAttribute('transform',imu?`rotate(${-imu.roll} 320 118) translate(0 ${imu.pitch*3})`:'');
-  // Group 22 contains accepted, normalized roll, pitch, throttle, yaw and AUX.
-  const ch=s.channels;positionStick('left',ch?.[3],ch?.[2]);positionStick('right',ch?.[0],ch?.[1]);bars(channelEls,ch);bars(motorEls,s.motor);
-  text($('rx-state'),ch?(replay?'RECORDED · µs':'ACCEPTED · µs'):'NO DATA');
-  text($('health-source'),replay?'REPLAY':'TELEMETRY');
-
+  if (page === 'flight') flightExtra.update(ctx);
+  else if (flightExtra.transmitter.isOpen()) flightExtra.transmitter.update(ctx);
 }
 
 function advance(target,seek=false){
@@ -167,7 +191,7 @@ $('file').onchange=async()=>{
   try{
     if(file.size>MAX_CSV_BYTES)throw new Error('Choose a telemetry CSV smaller than 8 MiB.');
     const rows=parseCsv(await file.text());
-    if(['opening','handshake','connected','stale'].includes(state))throw new Error('Disconnect USB to open a recording.');
+    if(['opening','handshake','connected','stale'].includes(state))throw new Error('Disconnect the kit to open a recording.');
     replay={rows,model:new Instruments(),index:0,duration:rows.at(-1).at,position:0,playing:false,startedAt:0};
     $('replay').hidden=false;$('seek').max=String(replay.duration);$('play').disabled=replay.duration===0;
     shell.reset('replay');shell.log('Opened recording · '+file.name);pause();advance(0);notice('');view('flight');
@@ -196,3 +220,10 @@ function tick(now){
   requestAnimationFrame(tick);
 }
 shell.start();render();requestAnimationFrame(tick);
+
+if (location.protocol === 'https:' && window.isSecureContext && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./offline-worker.js').then(() => navigator.serviceWorker.ready).then(() => {
+    document.documentElement.dataset.offlineReady='true';
+    document.dispatchEvent(new Event('areion-offline-ready'));
+  }).catch(() => { /* USB and online use remain available when caching is disabled. */ });
+}

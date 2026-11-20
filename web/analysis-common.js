@@ -21,7 +21,16 @@ export function diagnostics(ctx) {
     if (!row || row.at>ctx.clock) continue;
     groups[id]={values:row.values,age_s:Math.round(ctx.clock-row.at)/1000};
   }
-  return {app:'Areion Flight Console Web',protocol:2,source:ctx.replay?'recording':'usb',state:ctx.state,received_packets:ctx.rows.length,groups,events:ctx.events.slice(-30)};
+  const connected=!ctx.replay && ctx.state==='connected';
+  return {
+    app:'Areion Flight Console Web', protocol:2, source:ctx.replay?'recording':ctx.path?.toLowerCase() || 'usb',
+    state:ctx.state, connected, port:ctx.replay?null:ctx.portLabel || null,
+    host_session:connected?ctx.link?.session ?? null:null,
+    fc_session:connected?ctx.link?.fcSession ?? null:null,
+    link_frames:connected&&ctx.link?.stats?{tx:ctx.link.stats.sent,rx:ctx.link.stats.received}:null,
+    received_packets:ctx.packetCount ?? ctx.rows.length, retained_packets:ctx.rows.length,
+    groups, events:ctx.events.slice(-30)
+  };
 }
 export async function copyReport(ctx, output) {
   const text=JSON.stringify(diagnostics(ctx),null,2);

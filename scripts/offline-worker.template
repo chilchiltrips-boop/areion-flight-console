@@ -1,0 +1,37 @@
+// Only the versioned static console belongs in this cache. All kit I/O stays in the tab.
+const scope = self.registration.scope;
+const prefix = 'areion-console-' + new URL(scope).pathname + '-';
+const cacheName = prefix + '__VERSION__';
+const files = __FILES__;
+const assets = new Set(files.map(path => new URL(path,scope).href));
+const index = new URL('index.html',scope).href;
+
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(cacheName);
+    // Validate the entire release before letting it take over a new browsing session.
+    try {
+      await cache.addAll([...assets].map(url => new Request(url,{cache:'reload'})));
+    } catch (error) {
+      await caches.delete(cacheName);
+      throw error;
+    }
+  })());
+});
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    for (const name of await caches.keys()) {
+      if (name.startsWith(prefix) && name !== cacheName) await caches.delete(name);
+    }
+    await self.clients.claim();
+  })());
+});
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.origin !== new URL(scope).origin) return;
+  const isEntry = event.request.mode === 'navigate' && (url.pathname === new URL(scope).pathname || url.pathname === new URL(index).pathname);
+  const asset = isEntry ? index : url.href;
+  if (!assets.has(asset)) return;
+  event.respondWith(caches.open(cacheName).then(async cache => (await cache.match(asset)) || fetch(event.request)));
+});

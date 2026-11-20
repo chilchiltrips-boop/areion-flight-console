@@ -26,15 +26,19 @@ function checksum(bytes) {
   return ((crc ^ UINT32) >>> 0).toString(16).toUpperCase().padStart(8, "0");
 }
 
+function frame(json) {
+  const bytes = encoder.encode(json);
+  if (bytes.length > MAX_PAYLOAD) throw Error("Link v2 payload exceeds its size limit");
+  return encoder.encode("$" + bytes.length + ":" + json + "*" + checksum(bytes) + "\n");
+}
+
 export function encodeRequest(type, group, schema, session, seq) {
   if (!outgoingTypes.has(type) || !inRange(session, 1, UINT32) || !inRange(seq, 1, UINT32)
       || !inRange(group, 0, 65535) || !inRange(schema, 1, 65535)
       || (type === "READ" ? schemaFor(group) !== schema : group !== 0 || schema !== 1)) {
     throw new Error("Invalid telemetry request");
   }
-  const json = JSON.stringify({v: 2, type, group, schema, session, seq, data: []});
-  const bytes = encoder.encode(json);
-  return encoder.encode("$" + bytes.length + ":" + json + "*" + checksum(bytes) + "\n");
+  return frame(JSON.stringify({v: 2, type, group, schema, session, seq, data: []}));
 }
 
 function decode(bytes) {
@@ -65,6 +69,7 @@ function decode(bytes) {
       || !inRange(msg.session, 1, UINT32) || !inRange(msg.seq, 1, UINT32)
       || !Array.isArray(msg.data) || msg.data.length > 32
       || !msg.data.every(v => typeof v === "boolean" || Number.isFinite(v) || boundedString(v))) return null;
+  Object.defineProperty(msg,'byteLength',{value:bytes.length});
   return msg;
 }
 
@@ -135,4 +140,53 @@ export function validGroup(group, schema, values) {
   const entry = entries.get(group);
   return Boolean(entry && entry[0] === schema && Array.isArray(values)
     && entry[1].length === values.length && entry[1].every((test, index) => test(values[index])));
+}
+
+// The controller preserves JSON number types. An integral PID gain must be
+// serialized as 3.0 rather than 3, just as the Python SDK serializes a float.
+const persistent = new Set([2, 3, 4, 6, 7, 112, 132, 134]);
+const setupAcks = new Map([
+  ['BEGIN','SETUP_LOCKED'], ['STOP','STOPPED'], ['MOTOR_STOP','STOPPED'],
+  ['SENSOR_OK','SETUP_UPDATED'], ['RX_OK','SETUP_UPDATED'], ['FAILSAFE_OK','SETUP_UPDATED'],
+  ['ESC_SCHEDULE','SETUP_UPDATED'], ['ESC_SKIP','SETUP_UPDATED'], ['ESC_VERIFY','SETUP_UPDATED'],
+  ['MOTOR_START','MOTOR_TEST_STARTED'], ['MOTOR_SET','MOTOR_TEST_UPDATED'], ['MOTOR_OK','MOTORS_VERIFIED'],
+  ['FINALIZE','SETUP_SAVED_ARM_AVAILABLE'], ['RESET_ALL','RESET_DEFAULTS_SAVED'], ['INPUT_SAVE','INPUT_SAVED']
+]);
+function actionValid(group, values) {
+  if (group === 123) return values.length === 1 && ['ARM','DISARM'].includes(values[0]);
+  if (group === 135) return values.length === 5 && setupAcks.has(values[0])
+    && values.slice(1).every(v => inRange(v,0,1500));
+  if (group !== 137 || values.length !== 11 || ![2,3].includes(values[0]) || typeof values[1] !== "boolean") return false;
+  const count = values[0] === 2 ? 9 : 6;
+  return validGroup(values[0], 1, values.slice(2, 2 + count)) && values.slice(2 + count).every(v => v === 0);
+}
+function isFloat(group, index) {
+  return [2,3,6].includes(group) || (group === 137 && index >= 2) || (group === 7 && index >= 1 && index <= 3);
+}
+export function encodeCommand(type, group, session, seq, values = []) {
+  if (!inRange(session,1,UINT32) || !inRange(seq,1,UINT32) || !Array.isArray(values)) throw Error("Invalid Link v2 request");
+  const schema = schemaFor(group) ?? 1;
+  let valid = false;
+  if (type === 'READ') valid = schemaFor(group) != null && (!values.length || (persistent.has(group) && values.length === 1 && values[0] === 'saved'));
+  if (type === 'SET') valid = (persistent.has(group) || group === 110) && validGroup(group, schema, values);
+  if (type === 'SAVE') valid = persistent.has(group) && !values.length;
+  if (type === 'ACTION') valid = actionValid(group, values);
+  if (type === 'CONTROL') valid = group === 9 && values.length === 8 && values.every(v => inRange(v,1000,2000));
+  if (!valid) throw Error("Invalid " + type + " request for group " + group);
+  const fields = values.map((v,i) => {
+    const literal = JSON.stringify(v);
+    return typeof v === 'number' && isFloat(group,i) && Number.isInteger(v) ? literal + '.0' : literal;
+  });
+  return frame('{"v":2,"type":'+JSON.stringify(type)+',"group":'+group+',"schema":'+schema+
+    ',"session":'+session+',"seq":'+seq+',"data":['+fields.join(',')+']}');
+}
+export function matchesAck(request, reply) {
+  if (reply.type !== 'ACK' || reply.data.length !== 1) return false;
+  const ack = reply.data[0];
+  if (request.type === 'SET') return ack === 'APPLIED_UNSAVED';
+  if (request.type === 'SAVE') return ack === 'SAVED';
+  if (request.type !== 'ACTION') return false;
+  if (request.group === 123) return ack === (request.values[0] === 'ARM' ? 'ARMED' : 'DISARMED');
+  if (request.group === 135) return ack === setupAcks.get(request.values[0]);
+  return request.group === 137 && ['PID_SAVED','PID_APPLIED_PENDING_SAVE'].includes(ack);
 }

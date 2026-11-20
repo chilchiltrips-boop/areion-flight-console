@@ -52,3 +52,59 @@
 .ac-scope-health [data-level="good"]{background:#c6e6d5;color:#145448}
 .ac-scope-health [data-level="warn"]{background:#f7ddaa;color:#684821}
 .ac-scope-health [data-level="bad"]{background:#f6cdd0;color:#85333e}
+
+/* Match the desktop telemetry workspace and its independent, scrollable table. */
+#system-page .ac-sectionbar{padding:.28rem .45rem;border:1px solid #2b4156;background:#142231;border-radius:5px}
+#system-page .ac-sectionbar button{min-height:30px;padding:.25rem .78rem}
+#system-page .ac-title{font-size:1.4rem;font-weight:700;line-height:1.32;margin:.55rem 0}
+#system-page .ac-toolbar{margin:.35rem 0 .55rem}
+#system-page .ac-filter{margin:0}
+#system-page .ac-subtabs{gap:0}
+#system-page .ac-subtabs button{border-radius:0;border:0;padding:.37rem .8rem;background:#18293b;color:#bdcbd6}
+#system-page .ac-subtabs button[aria-pressed=true]{background:#31475a;color:#ffc27c}
+#system-page .ac-values{height:clamp(16rem,calc(100dvh - 286px),68rem);max-height:none;border:1px solid #344b60;background:#102030;border-radius:4px;padding:0;overflow:auto}
+#system-page .ac-table{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;background:#122131;font-variant-numeric:tabular-nums}
+#system-page .ac-table th{background:#1b2f43;text-align:left;font-weight:550}
+#system-page .ac-table :is(th,td){padding:.32rem .49rem;border-right:1px solid #293f50;border-bottom:1px solid #293f50;overflow:hidden;text-overflow:ellipsis}
+#system-page .ac-table th:nth-child(1){width:19%}#system-page .ac-table th:nth-child(2){width:45%}#system-page .ac-table th:nth-child(3){width:12%}#system-page .ac-table th:nth-child(4){width:10%}
+#system-page .ac-table tbody tr:nth-child(even){background:#172838}
+#system-page .ac-table td:last-child{text-transform:uppercase}
+#system-page .ac-box h2{margin:0;font-size:1.12rem}
+#scopes-page.ac-surface{padding:.6rem .72rem;background:#e8f0ec;border:1px solid #b1c7bf}
+.ac-scope-title{display:flex;align-items:center;gap:.55rem;margin:0 0 .45rem;min-width:0}
+.ac-scope-title img{width:29px;height:29px;background:#1d4950;border-radius:6px;padding:5px}
+#scopes-page .ac-scope-title h1{margin:0;font-size:1.43rem;line-height:1.3;font-weight:720;color:#16383e}
+.ac-scope-state{font-size:.7rem;color:#516566;background:#dae2de;border-radius:4px;padding:.4rem .5rem}
+.ac-scope-state:is([data-state=Live],[data-state=Playback]){color:#125044;background:#d1e9db}
+.ac-scope-state[data-state=Frozen]{color:#654d0f;background:#f9e8af}
+.ac-scope-state[data-state=Stale]{color:#7f352e;background:#f7dacf}
+#scopes-page .ac-scope-title .ac-actions{margin:0 0 0 auto}
+#scopes-page .ac-scope-title .ac-actions button{background:#f6faf6;color:#234851;border-color:#a9beb8}
+#scopes-page .ac-scope-title .ac-actions button[aria-pressed=true]{background:#f7da93;color:#4b391a}
+#scopes-page .ac-toolbar{margin:0 0 .44rem;padding:.22rem .37rem}
+#scopes-page .ac-toolbar label{font-size:.77rem;color:#496567}
+#scopes-page .ac-toolbar select{padding:.2rem .36rem}
+#scopes-page [data-top] button{padding:.26rem .76rem;font-size:.81rem;background:transparent;border:1px solid transparent}
+#scopes-page [data-top] button[aria-pressed=true]{background:#235752;color:#f5fbf5}
+#scopes-page .ac-grid{gap:.42rem}
+#scopes-page .ac-plot{display:flex;flex-direction:column;gap:.1rem;padding:.46rem .6rem .24rem;border-radius:8px;background:#152b35}
+#scopes-page .ac-plot header{justify-content:flex-start;align-items:baseline;margin:0;gap:.45rem}
+#scopes-page .ac-plot header h3{font-size:.91rem;margin:0}
+#scopes-page .ac-plot .ac-plot-status{margin-left:auto;font-size:.67rem;font-weight:600}
+#scopes-page .ac-plot header span:not(.ac-plot-status){font-size:.72rem}
+#scopes-page .ac-legend{margin:.04rem 0 .12rem}
+#scopes-page .ac-legend button{color:#75888b;background:#13232c;border:1px solid #36515b;border-radius:4px;font-size:.72rem;padding:.1rem .45rem}
+#scopes-page .ac-legend button[aria-pressed=true]{color:var(--series);background:#203a45;border-color:#436472}
+#scopes-page .ac-legend button:before{display:none}
+#scopes-page .ac-plot canvas{height:clamp(9rem,calc((100dvh - 350px)/2),28rem);background:#10232c}
+.ac-axis-name{text-align:right;color:#aac0c7;font-size:.68rem}
+#scopes-page .ac-note:empty{display:none}
+#scopes-page .ac-scope-health{margin:.35rem 0 0}
+@media(max-width:700px){
+  #system-page .ac-table{min-width:37rem}
+  #system-page .ac-toolbar{align-items:start}
+  #scopes-page .ac-scope-title{flex-wrap:wrap}
+  #scopes-page .ac-scope-title .ac-actions{gap:.24rem}
+  #scopes-page .ac-scope-title .ac-actions button{font-size:.77rem;padding:.35rem}
+  #scopes-page .ac-plot canvas{height:11rem}
+}

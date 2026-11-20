@@ -20,10 +20,8 @@ function mark(el, active) {
   if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');
 }
 export class ConsoleShell {
-  constructor({select,toggleUsb,disconnectUsb}) {
+  constructor({select}) {
     this.select=select;
-    this.toggleUsb=toggleUsb;
-    this.disconnectUsb=disconnectUsb;
     this.modules=new Map();
     this.pending=new Map();
     this.events=[];
@@ -39,13 +37,6 @@ export class ConsoleShell {
       const el=event.target.closest('[data-route]');
       if(el&&!el.disabled){event.preventDefault();this.navigate(el.dataset.route);}
     });
-    get('full-console').addEventListener('click',()=>this.fullConsole());
-    get('release-usb').addEventListener('click',async()=>{
-      const control=get('release-usb');
-      control.disabled=true;
-      try{await this.disconnectUsb();}catch(error){write('release-status',error.message || 'USB disconnect failed.');}
-      finally{control.disabled=false;}
-    });
     window.addEventListener('hashchange',this.navHandler);
     this.show(location.hash);
   }
@@ -58,11 +49,13 @@ export class ConsoleShell {
   show(path){
     const [page,sub]=routeName(path);
     const old=this.page;
+    if(old!==page)this.modules.get(old)?.suspend?.();
     this.page=page;this.sub=sub;
+    document.body.dataset.page=page;
     for(const key of Object.keys(titles))get(key+'-page').hidden=key!==page;
     document.querySelectorAll('.mast .nav[data-route]').forEach(btn=>mark(btn,btn.dataset.route===(page==='record'?'flight':page)));
-    get('workspace-heading').hidden=page==='welcome';
-    get('flight-subnav').hidden=page!=='flight'&&page!=='record';
+    get('workspace-heading').hidden=['welcome','flight','configuration','system','scopes'].includes(page);
+    get('flight-subnav').hidden=page!=='record';
     mark(get('live-tab'),page==='flight');mark(get('record-tab'),page==='record');
     write('page-title',titles[page]);
     document.title=page==='welcome'?'Areion Flight Console':titles[page]+' · Areion Flight Console';
@@ -86,15 +79,6 @@ export class ConsoleShell {
       container.append(status,retry);console.error(error);
     }finally{this.pending.delete(page);container.removeAttribute('aria-busy');}
   }
-  fullConsole(){
-    const modal=get('full-dialog');
-    write('release-status','');
-    this.showUsbOwnership(this.context?.state);
-    if(!modal.open)modal.showModal();
-  }
-  showUsbOwnership(state){
-    get('port-in-use').hidden=!['opening','handshake','connected','stale'].includes(state);
-  }
   log(message){
     if(this.lastEvent===message)return;
     this.lastEvent=message;this.events.push({time:Date.now(),message});
@@ -104,10 +88,7 @@ export class ConsoleShell {
   onPacket(row,source){for(const pane of this.modules.values())pane.onPacket?.(row,source);}
   update(ctx){
     this.context=ctx;
-    if(get('full-dialog').open)this.showUsbOwnership(ctx.state);
     const s=ctx.snapshot;
-    write('top-arm',s.status?(s.status[0]?'Armed':'Disarmed'):'Arm unknown');
-    get('top-arm').dataset.armed=s.status?String(s.status[0]):'';
     this.modules.get(this.page)?.update?.(ctx);
     if(this.page!=='welcome')return;
     const connected=ctx.state==='connected';
@@ -116,10 +97,10 @@ export class ConsoleShell {
     const report=ctx.group(122,500);
     const chosen=report?.[0]??ctx.group(110)?.[0];
     const reading=ctx.replay||connected;
-    const linkLabels={opening:'Opening',handshake:'Connecting',stale:'Link stale',error:'USB error',connected:'Connected',replay:'Replay'};
+    const linkLabels={opening:'Opening',handshake:'Connecting',stale:'Link stale',error:'Link error',connected:'Connected',replay:'Replay'};
     write('welcome-link',linkLabels[ctx.state]||'Offline');
     get('welcome-link').dataset.state=ctx.state;
-    write('welcome-transport',ctx.replay?'CSV recording':connected?'USB':'—');
+    write('welcome-transport',ctx.replay?'CSV recording':connected?ctx.path:'—');
     write('welcome-firmware',reading&&s.firmware?String(s.firmware):'—');
     write('welcome-input',reading&&chosen!=null?['PPM','AP','USB'][chosen]||'—':'—');
     write('welcome-setup',reading&&setup?isVerified?'Saved':setup[0]?'In progress':'Incomplete':'—');

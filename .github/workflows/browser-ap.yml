@@ -1,0 +1,25 @@
+name: Compile browser AP firmware
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/browser-ap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32-C6 toolchain
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.7 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - name: Compile Areion FC A1 and the two bundled libraries
+        run: arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32C6 --libraries firmware/libraries firmware/AreionBrowserAP

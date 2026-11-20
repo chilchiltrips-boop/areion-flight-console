@@ -11,7 +11,7 @@ const motion=[
 const control=['Roll','Pitch','Yaw'].map((axis,i)=>({title:axis+' rate',unit:'°/s',curves:[curve('Measured',21,i),curve('Target',23,7+i)]}));
 control.push(def('Motor commands','µs',23,['M1','M2','M3','M4'],[3,4,5,6]));
 const modes=['Motion','Control','Spectrum','Receiver'];
-const channelNames=['Roll','Pitch','Throttle','Yaw','Auxiliary','Auxiliary','Auxiliary','Auxiliary'];
+const channelNames=['Roll','Pitch','Throttle','Yaw','AUX 5','AUX 6','AUX 7','AUX 8'];
 const charts={
   motion,control,
   spectrum:[def('Accelerometer spectrum','g',21,['X','Y','Z'],[3,4,5]),def('Gyroscope spectrum','°/s',21,['Roll','Pitch','Yaw'],[0,1,2])],
@@ -22,7 +22,9 @@ function makeChart(definition) {
   const panel=node('section',null,'ac-plot'), header=node('header'), legend=node('div',null,'ac-legend'), plot=node('canvas');
   plot.setAttribute('aria-label',definition.title+' in '+definition.unit);
   plot.setAttribute('role','img');
-  header.append(node('h3',definition.title),node('span',definition.unit));panel.append(header,plot,legend);
+  const status=node('span','OFFLINE','ac-plot-status');
+  const axisName=node('div','Time (s)','ac-axis-name');
+  header.append(node('h3',definition.title),node('span',definition.unit),status);panel.append(header,legend,plot,axisName);
   const hidden=new Set(), buttons=[];
   for(const [index,c] of definition.curves.entries()){
     const button=node('button',c.title);
@@ -38,8 +40,10 @@ function makeChart(definition) {
   }
   plot.addEventListener('pointermove',event=>{const bounds=plot.getBoundingClientRect();pointer=[event.clientX-bounds.left,event.clientY-bounds.top];repaint();});
   plot.addEventListener('pointerleave',()=>{pointer=null;repaint();});
-  function draw(series,axis,message=''){
-    lastDraw=()=>draw(series,axis,message);
+  function draw(series,axis,message='',state='Offline'){
+    lastDraw=()=>draw(series,axis,message,state);
+    put(status,state.toUpperCase());
+    put(axisName,axis.name || 'Time (s)');
     const width=plot.clientWidth,height=plot.clientHeight;
     if(!width||!height) return;
     const dpr=Math.min(3,devicePixelRatio||1), w=Math.round(width*dpr), h=Math.round(height*dpr);
@@ -100,43 +104,65 @@ function makeChart(definition) {
   return {panel,draw};
 }
 
-function channelMonitor(target,read,raw,ctx) {
-  const inputs=read(122,500), settings=read(134), modes=read(7), calibration=read(132);
+export function receiverReadout(ctx,raw) {
+  const read=(...args)=>ctx.group(...args);
+  const selected=read(122,500)?.[0] ?? read(110)?.[0];
+  const axes=read(134)?.slice(2,6), mode=read(7), endpoints=raw?read(132):null;
   let values=ctx.snapshot?.channels;
   if(raw){
-    const packet=read(131,500);
-    values=packet?.[9] && packet[10]<(read(112)?.[0]??250) && packet[8]>=4 && packet[8]<=8 ? packet.slice(0,packet[8]):null;
+    const packet=read(131,500), count=packet?.[8], timeout=read(112)?.[0] ?? 250;
+    const valid=packet?.[9] === true && count>=4 && count<=8 && packet[10]>=0 && packet[10]<timeout &&
+      packet.slice(0,count).every(v=>Number.isInteger(v) && v>=900 && v<=2100) &&
+      packet.slice(count,8).every(v=>v===0);
+    values=valid?packet.slice(0,count):null;
   }
-  const cells=target.querySelectorAll('tr[data-channel]');
-  for(const [i,row] of Array.from(cells).entries()){
-    const slots=settings?.slice(2,6);
-    let title=raw?(slots?channelNames[slots.indexOf(i+1)]||'Auxiliary':'—'):channelNames[i];
-    const value=values?.[i],valid=Number.isFinite(value)&&value>=900&&value<=2100;
-    if(modes && (raw || i>=4 || inputs?.[0]>0) && i+1===modes[0]){
-      const mode=valid?['Angle','Rate / Acro'][modes[value<1500?4:5]]:null;
-      title=mode?'Mode · '+mode:'Flight mode';
+  if(!active(ctx) || !values?.every(v=>Number.isInteger(v) && v>=900 && v<=2100))values=null;
+  return channelNames.map((name,i)=>{
+    const ch=i+1;
+    let role=raw?(axes?channelNames[axes.indexOf(ch)] || 'Auxiliary':'—'):name;
+    if(!raw && i<4 && selected===0 && axes)role+=' · CH'+axes[i];
+    const value=values?.[i] ?? null;
+    if(mode && ch===mode[0] && (raw || selected===1 || selected===2 || (selected===0 && ch>=5))){
+      role=value===null?'Flight mode':'Mode · '+['Angle','Rate / Acro'][mode[value<1500?4:5]];
     }
-    const [role,bar,live,limits] = Array.from(row.cells).slice(1);
-    put(role,title); put(live, valid?value+' µs':'—');
-    bar.firstChild.style.setProperty('--val',valid?((value-900)/12)+'%':'0%');
-    put(limits,raw && calibration?calibration.slice(4*i,4*i+3).join(' / ')+' · '+(calibration[4*i+3]?'rev':'normal'):'—');
+    return {role,value,limits:endpoints?endpoints.slice(i*4,i*4+3).join(' / ')+' · '+(endpoints[i*4+3]?'reversed':'normal'):'—'};
+  });
+}
+
+function channelMonitor(target,raw,ctx) {
+  const data=receiverReadout(ctx,raw);
+  for(const [i,row] of target.querySelectorAll('tr[data-channel]').entries()){
+    const {role,value,limits}=data[i];
+    const [functionCell,bar,live,limitCell]=Array.from(row.cells).slice(1);
+    put(functionCell,role);put(live,value===null?'—':value+' µs');
+    bar.firstChild.style.setProperty('--val',value===null?'0%':((value-900)/12)+'%');
+    put(limitCell,limits);
   }
 }
 
 export function mount(root) {
   root.classList.add('ac-surface');
-  root.innerHTML='<div class="ac-toolbar"><div class="ac-tabs" data-top></div><div class="ac-actions"><label>Window <select aria-label="Scope time window"><option>5</option><option selected>15</option><option>30</option></select> s</label><button data-freeze>Freeze</button><button data-export>Export session CSV</button></div></div><div class="ac-rx-tabs ac-tabs"></div><div class="ac-grid"></div><div class="ac-scope-health"></div><p class="ac-note" aria-live="polite"></p>';
-  const top=root.querySelector('[data-top]'),grid=root.querySelector('.ac-grid'),sub=root.querySelector('.ac-rx-tabs'),note=root.querySelector('.ac-note'),window=root.querySelector('select'),freeze=root.querySelector('[data-freeze]'),save=root.querySelector('[data-export]');
+  root.innerHTML=`
+    <header class="ac-scope-title">
+      <img src="./assets/console/nav-scopes.svg" alt="">
+      <h1>Scopes</h1><strong class="ac-scope-state">Offline</strong>
+      <div class="ac-actions"><button data-freeze>Freeze</button><button data-export>Export session CSV</button></div>
+    </header>
+    <div class="ac-toolbar"><nav class="ac-tabs" data-top aria-label="Scope views"></nav>
+      <label>Window <select aria-label="Scope time window"><option value="5">5 s</option><option value="15" selected>15 s</option><option value="30">30 s</option></select></label>
+    </div>
+    <div class="ac-rx-tabs ac-tabs"></div><div class="ac-grid"></div><div class="ac-scope-health"></div><p class="ac-note" aria-live="polite"></p>`;
+  const top=root.querySelector('[data-top]'),grid=root.querySelector('.ac-grid'),sub=root.querySelector('.ac-rx-tabs'),note=root.querySelector('.ac-note'),window=root.querySelector('select'),freeze=root.querySelector('[data-freeze]'),save=root.querySelector('[data-export]'),badge=root.querySelector('.ac-scope-state');
   const health=root.querySelector('.ac-scope-health');
   const flags=['Link','IMU','Input','Output'].map(title=>{const flag=node('span');health.append(flag);return [title,flag];});
   function addTab(parent,key,title){const b=node('button',title);b.dataset.tab=key;parent.append(b);}
   for(const title of modes)addTab(top,title.toLowerCase(),title);
   for(const [key,title] of [['accepted','Accepted channels'],['raw','Raw PPM'],['history','Channel history']])addTab(sub,key,title);
   let mode='motion',rx='accepted',held=null,panels=[],ctx=null,renderKey='',previousClock=-1,lastMessage='';
-  const setTab=hookTabs(top,k=>{mode=k;build();}),setRx=hookTabs(sub,k=>{rx=k;build();});
+  const setTab=hookTabs(top,k=>{if(ctx?.navigate)ctx.navigate('scopes/'+k);else{mode=k;build();}}),setRx=hookTabs(sub,k=>{rx=k;build();});
   function build(){
     grid.replaceChildren();panels=[];renderKey='';lastMessage='';setTab(mode);setRx(rx);
-    sub.hidden=mode!=='receiver';
+    sub.hidden=mode!=='receiver'; window.closest('label').hidden=mode==='receiver' && rx!=='history';
     if(mode==='receiver' && rx!=='history'){
       const scroller=node('div',null,'ac-table-wrap'),table=node('table',null,'ac-table');
       table.innerHTML='<thead><tr><th>Channel</th><th>Function</th><th>Pulse</th><th>Value</th><th>Min / centre / max</th></tr></thead><tbody></tbody>';
@@ -150,6 +176,8 @@ export function mount(root) {
     previousClock=next.clock;ctx=next;
     const data=held||ctx, seconds=Number(window.value);
     const records=data.rows;
+    const caption=held?'Frozen':data.replay?'Playback':data.state==='connected'?'Live':data.state==='stale'?'Stale':'Offline';
+    put(badge,caption.toUpperCase());badge.dataset.state=caption;
     const ss=data.snapshot?.health||{};
     const states=[{label:data.replay?'Recording':data.state,level:active(data)?'good':'idle'},ss.sensor,ss.input,ss.output];
     for(const [i,[title,flag]] of flags.entries()){
@@ -160,7 +188,7 @@ export function mount(root) {
     freeze.disabled=!held&&(!records.length||!active(data));save.disabled=!ctx.rows.length;
     put(freeze,held?'Resume':'Freeze');freeze.setAttribute('aria-pressed',String(Boolean(held)));
     if(mode==='receiver'&&rx!=='history'){
-      channelMonitor(grid,data.group,rx==='raw',data);
+      channelMonitor(grid,rx==='raw',data);
       put(note,held?'Frozen':rx==='raw'?'Physical PPM · streamed by the controller during setup':(data.snapshot?.input.label||'Waiting for receiver'));
       return;
     }
@@ -171,13 +199,17 @@ export function mount(root) {
     if(mode==='spectrum'){
       fft=spectrum(groups.get(21),data.clock,data.group(125)?.[0]);
       if (!data.snapshot?.imu) fft={message:'Waiting for current IMU telemetry'};
-      const max=fft.fs?fft.fs/2:1;axis={lo:0,hi:max,label:k=>fft.fs?Number((max*k).toFixed(2))+' Hz':''};
+      const max=fft.fs?fft.fs/2:1;axis={name:'Frequency (Hz)',lo:0,hi:max,label:k=>fft.fs?Number((max*k).toFixed(2))+' Hz':''};
     }
     for(const [i,definition] of charts[mode].entries()){
       const dataSeries=definition.curves.map(c=>fft?(fft.bins?[fft.bins[c.index]]:[]):trace(groups.get(c.group),c.index));
-      panels[i].draw(dataSeries,axis,fft?.message||(!active(data)?'Offline':'Waiting for telemetry'));
+      const ids=[...new Set(definition.curves.map(curve=>curve.group))];
+      const hasTrace=dataSeries.some(series=>series.some(segment=>segment.length));
+      const current=ids.every(group=>data.group(group,500));
+      const state=active(data) && !held ? (!hasTrace?'Waiting':!current?'Stale':caption) : caption;
+      panels[i].draw(dataSeries,axis,fft?.message || 'Waiting for samples',state);
     }
-    const parts=[held?'Frozen':data.replay?'Recording':active(data)?'Live':'Offline'];
+    const parts=[];
     if(fft?.fs)parts.push(fft.n+' samples',fft.fs.toFixed(2)+' Hz telemetry','Δf '+(fft.fs/fft.n).toFixed(2)+' Hz');
     put(note,lastMessage||parts.join(' · '));
   }

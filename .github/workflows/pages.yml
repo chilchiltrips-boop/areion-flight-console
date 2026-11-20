@@ -6,8 +6,7 @@ on:
     paths:
       - 'web/**'
       - 'tests/**'
-      - 'desktop/**'
-      - 'Start Areion.command'
+      - 'scripts/**'
       - 'package.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -29,21 +28,11 @@ jobs:
           node-version: '22'
       - name: Test web console
         run: npm test
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Test local browser console
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1
-          python -m pip install 'PySide6-Essentials>=6.6,<7' 'pyserial>=3.5,<4'
-          python -m unittest discover -s tests -p 'host_*.py'
-          sh -n './Start Areion.command'
+      - name: Build browser app and offline assets
+        run: npm run build
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: web
+          path: dist
 
   publish:
     needs: check

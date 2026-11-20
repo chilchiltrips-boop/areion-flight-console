@@ -1,0 +1,221 @@
+/* Shared console bar, matching the FC A1 desktop header and route order. */
+.console-mast {
+  width: 100%;
+  min-width: 0;
+  border-bottom: 1px solid #354b61;
+  background: #102030;
+  color: #dce8f2;
+}
+.console-mast .top-line,
+.console-mast .nav-line {
+  max-width: none;
+  padding: 4px max(12px, calc((100vw - 1760px) / 2));
+}
+.console-mast .top-line {
+  min-height: 42px;
+  background: #132638;
+  border-bottom: 1px solid #3b536a;
+}
+.console-mast .identity strong {
+  font-size: 1rem;
+  font-weight: 760;
+  letter-spacing: .15em;
+  color: #eef6ff;
+}
+.console-mast .identity span {
+  color: #adc0d3;
+  font-size: .875rem;
+  font-weight: 500;
+}
+.console-mast .head-actions {
+  gap: clamp(7px, 1vw, 15px);
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+.console-mast #link-state { color: #a6bacf; }
+.console-mast #link-state[data-tone="good"] { color: #6be2ca; }
+.console-mast #link-state[data-tone="warn"] { color: #ffd08b; }
+.console-mast #link-state[data-tone="bad"],
+.console-mast #top-arm[data-armed="true"] { color: #ffacb7; }
+.console-mast #top-arm { display: inline; color: #c6e7df; }
+.console-mast #header-stop {
+  white-space: nowrap;
+  min-height: 32px;
+  padding: 4px 11px;
+  border: 1px solid #b05e71;
+  border-radius: 5px;
+  background: #663447;
+  color: #ffdae0;
+  font-size: .8rem;
+  font-weight: 740;
+}
+.console-mast #header-stop:hover:enabled { background: #843f50; }
+.console-mast #header-stop:disabled { opacity: .66; }
+.console-mast .nav-line {
+  min-height: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  background: #1a2d40;
+}
+.console-mast nav {
+  align-self: center;
+  flex: 0 1 auto;
+  width: auto;
+  height: auto;
+  order: 0;
+  gap: 2px;
+}
+.console-mast .nav {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 5px clamp(5px, .65vw, 10px);
+  gap: 5px;
+  font-size: .875rem;
+  font-weight: 620;
+  color: #c1d1df;
+}
+.console-mast .nav.active { background: #29554f; color: #d8fff4; }
+.console-mast .nav img { width: 16px; height: 16px; }
+.console-mast .link-controls {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+}
+.console-mast .link-controls button,
+.console-mast .link-controls select,
+.console-mast .link-controls input {
+  min-height: 32px;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid #536a80;
+  border-radius: 5px;
+  background: #2c4258;
+  color: #eff6ff;
+  font: 600 .84rem/1.15 system-ui, sans-serif;
+}
+.console-mast .link-controls select { cursor: pointer; padding-right: 5px; }
+.console-mast #header-transport { background: #14273a; }
+.console-mast #header-ap { width: min(37ch, 90vw); background: #14273a; }
+.console-mast .link-controls select option { background: #1c344a; color: #fff; }
+.console-mast .link-controls #connect {
+  min-width: 78px;
+  background: #ffbc74;
+  border-color: #ffcb91;
+  color: #20282f;
+}
+.console-mast #connect:hover:enabled { background: #ffd094; }
+.console-mast input:focus-visible,
+.console-mast select:focus-visible,
+.console-mast button:focus-visible { outline: 2px solid #83e9d5; outline-offset: 2px; }
+.console-mast #disconnect { width: 32px; padding: 0; font-size: 1.2rem; line-height: 1; }
+.console-mast #header-ap-info {
+  padding: 4px max(13px, calc((100vw - 1760px) / 2)) 7px;
+  color: #ffd08b;
+  text-align: right;
+  font-size: .82rem;
+  line-height: 1.35;
+}
+#ap-offline-status { font-weight: 650; padding-right: .42em; }
+#ap-offline-status[data-ready="true"] { color: #73dbc6; }
+.console-mast #ap-firmware-note { color: #b7c9d8; }
+.traffic-meter {
+  min-width: 114px;
+  align-self: center;
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: #112333;
+  font: 600 .7rem/1.3 system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.traffic-row {
+  height: 15px;
+  display: grid;
+  align-items: center;
+  grid-template-columns: 19px 1fr 4.4ch;
+  gap: 4px;
+  color: #b9ccdf;
+}
+.traffic-row output { text-align: right; color: #e0ebf6; white-space: nowrap; }
+.traffic-bars { display: flex; align-items: center; gap: 2px; }
+.traffic-bars i { width: 5px; height: 7px; border-radius: 1px; background: #30465c; }
+.traffic-bars .lit { background: #f5b459; }
+.traffic-meter[data-fresh="true"] .lit { background: #62dfc4; }
+.port-wrap { position: relative; min-width: 0; max-width: 100%; }
+.console-mast #header-port {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 108px;
+  max-width: min(430px, 78vw);
+}
+#header-port span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#header-port i {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid;
+  border-bottom: 1.5px solid;
+  transform: translateY(-2px) rotate(45deg);
+}
+.port-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 5px);
+  right: 0;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(33rem, calc(100vw - 20px));
+  max-height: min(340px, 60vh);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid #5d778e;
+  border-radius: 6px;
+  background: #172c40;
+  box-shadow: 0 8px 22px #050d1680;
+  color: #f0f5ff;
+}
+.console-mast .port-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #edf5ff;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.console-mast .port-menu button:hover:enabled,
+.console-mast .port-menu button:focus-visible { background: #335067; }
+.console-mast .port-menu button[aria-checked="true"] { background: #2a5a55; color: white; }
+.console-mast .port-menu .add-port { border-top: 1px solid #3e586d; border-radius: 0; }
+.port-empty { padding: 7px 9px; color: #b5c7d6; font-size: .8rem; }
+@media (min-width: 741px) and (max-width: 1120px) {
+  .console-mast .nav-line { align-items: center; gap: 4px 6px; padding-inline: 8px; }
+  .console-mast .nav { gap: 3px; padding-inline: 5px; font-size: .82rem; }
+  .console-mast .link-controls { margin-left: auto; justify-content: flex-end; }
+}
+@media (max-width: 740px) {
+  .console-mast .top-line, .console-mast .nav-line { padding-left: 8px; padding-right: 8px; }
+  .console-mast .nav { padding: 4px 6px; font-size: .81rem; }
+  .console-mast .nav-line .link-controls { margin-left: auto; justify-content: flex-end; }
+}
+@media (max-width: 540px) {
+  .console-mast .top-line { flex-wrap: wrap; gap: 5px; }
+  .console-mast .identity span { display: none; }
+  .console-mast .head-actions { gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; font-size: .7rem; }
+  .console-mast .nav-line .link-controls { margin-left: 0; width: 100%; justify-content: flex-start; }
+  .console-mast .traffic-meter { min-width: 93px; }
+  .console-mast .traffic-row { grid-template-columns: 16px 1fr 3.7ch; gap: 2px; }
+  .console-mast .traffic-bars { gap: 1px; }
+  .console-mast #header-port { min-width: 88px; }
+  .port-menu { position: fixed; left: 8px; right: 8px; top: var(--ports-menu-top, 140px); width: auto; }
+}

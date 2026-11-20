@@ -1,38 +1,30 @@
 # Areion Flight Console
 
-Open [Areion Flight Console](https://chilchiltrips-boop.github.io/areion-flight-console/) for the Areion FC A1. The top bar follows the desktop console’s page order. Welcome has shortcuts to the setup wizard, flight instruments, input, IMU, ESCs, PID and scopes.
+[Open Flight Data](https://chilchiltrips-boop.github.io/areion-flight-console/#flight) · [Open the setup wizard](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/setup)
 
-## Choose how to open the console
+The GitHub Pages application runs in the browser and talks directly to the Areion FC A1. The laptop needs only a compatible browser. The two-row header contains the link state, arming status, DISARM / STOP, navigation, TX/RX frame rates, transport selector, port chooser and manual connection controls.
 
-| | Published web app | Full browser console |
-| --- | --- | --- |
-| Flight Data | Live USB telemetry, CSV replay, artificial horizon, relative yaw, airframe animation, joystick monitor and system health | Original Python instruments and interactive transmitter, keyboard, flight-mode switch and input selection |
-| Configuration | Browse setup, inspect input and ESC settings, capture IMU/PPM measurements and preview PID settings | Complete the original wizard, calibrate ESCs and motor outputs, change PID, save settings and verify controller readback |
-| System, Scopes and Firmware | Inspect telemetry, diagnostics, motion and control plots, receiver history, spectra and firmware information | Use the original desktop pages, dialogs, keyboard controls, animations and exports |
-| Connection | Web Serial in a supported desktop browser, or a local recording | USB or the kit’s AP Wi-Fi through the computer running the launcher |
+## Connect the kit
 
-The full browser console runs the same Python 3.12.3 GUI and Areion Link v2 implementation as the desktop application. Its browser tab displays the actual Qt widgets and sends mouse, touch and keyboard input to the local application. Hardware connections and settings stay on the computer connected to the kit. HITL and firmware flashing are disabled in this desktop release. The paired controller firmware is 3.2.0.
+- **USB.** Use desktop Chrome or Edge. Connect the kit by USB, choose **USB ports → Choose a new port…**, grant access to the board and press **Connect**. Close other applications using the same port. The list updates when devices are attached or removed. The console remembers the last confirmed USB type. If several identical adapters are present, choose the intended one. The browser may identify a port by vendor and product IDs.
+- **AP Wi-Fi.** Stock 3.2.0 firmware provides a UDP endpoint for desktop clients. Direct access from this website requires the optional [browser AP firmware](firmware/README.md) on the kit. Open the console online first and allow it to finish preparing for offline use. Join the kit’s Wi-Fi, select **AP Wi-Fi**, use the default kit address and press **Connect**. Allow local network access when prompted by your browser.
+- **Recordings.** Use **Flight Data → Recordings** to import a telemetry CSV or export the current session. Replay drives the instruments and plots from recorded packets. Hardware commands require a live controller.
 
-## Open the full console
+The header chooses the link to the kit. **Flight Data → Save input** independently selects PPM, AP or USB flight input. Switching input preserves the rest of the setup. Disarm the kit and stop its sender before changing input.
 
-On macOS, [download the project ZIP](https://github.com/chilchiltrips-boop/areion-flight-console/archive/refs/heads/main.zip), extract it and open **Start Areion.command**. Install Python 3.10 or newer beforehand. On first launch the script sets up the project environment and installs its dependencies. The full console then opens in your default browser. Leave its terminal running while using it.
+## Console pages
 
-With an existing Python environment on macOS, Windows or Linux, run the following from the extracted project folder.
+| Page | Controls and readings |
+| --- | --- |
+| Welcome | Page shortcuts, setup verification, kit status and session events |
+| Flight Data | Dual-stick transmitter, keyboard and auxiliary controls, eight channels, attitude display, relative yaw, animated IMU, system health and motor outputs |
+| Configuration | Guided setup and restart verification, receiver calibration, IMU capture, ESCs and motor outputs, rate and attitude PID editors with controller readback |
+| System | Live fields with age and state, connection details, event log, copyable diagnostics and CSV export |
+| Scopes | Motion, control, spectrum and receiver plots, freeze, time window and export |
+| Firmware | Controller-reported firmware identity and capabilities |
 
-```sh
-cd desktop
-python -m pip install -r requirements.txt
-python browser_console.py
-```
-
-To reopen the running console, choose **Full browser console → Open running console** on the published site, or open the private local link printed by the launcher. Disconnect USB from the published page first if that tab owns the port. Select **USB** or **AP** inside the full console and click **Connect**. The launcher accepts one controlling tab on the same computer. Switching away releases held controls and ends an active sender or motor test.
-
-## Open USB telemetry or a recording
-
-On the published page, select **Connect USB** in a browser with Web Serial support and select the board. The cockpit waits for the Link v2 handshake. **Flight Data → Recordings** imports telemetry CSV files from either console and exports packets from the current USB session. Roll, pitch, relative yaw, receiver channels and scopes update from the live link or the playback position. **Check transmitter** in Flight Data or Configuration records a live ON, OFF and restored-link check. The browser remembers the result for that receiver configuration and kit. A receiver that keeps transmitting unchanged channel values on radio loss remains unverified. Use the full browser console to apply controller settings and operate the kit.
+Remove the propellers before setup and motor calibration. Hardware-in-the-loop and browser firmware flashing are unavailable in this release. The IMU shows relative yaw. GPS position requires a reported fix.
 
 ## Development
 
-Serve the published app locally with `python -m http.server 8000 --directory web` and open `http://localhost:8000`. The JavaScript app needs no build step. Run `npm test` for its protocol, recording, instrument, scope and calibration tests. From the repository root, run `python -m unittest discover -s tests -p 'host_*.py'` with the desktop dependencies installed to test the local browser host. The desktop application and SDK have their own [guide](desktop/README.md).
-
-GitHub Actions tests the browser app and host and publishes the contents of `web/` to GitHub Pages on changes to `main`.
+Run `npm test` and `npm run build`. The build creates the static app and its offline cache in `dist/`. GitHub Actions tests and publishes this directory to GitHub Pages. The separate firmware workflow compiles the AP-enabled sketch for the target board. The [desktop source](desktop/README.md) is included for users of the original Python application.

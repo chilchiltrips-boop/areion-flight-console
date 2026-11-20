@@ -1,3 +1,5 @@
+import {defaults} from './config-commands.js';
+import {ConfigPanel,editor,extras} from './config-panel.js';
 import {airframe} from './airframe.js';
 import {drawResponse} from './pid-trace.js';
 import {poses,SensorCheck} from './calibration.js';
@@ -18,10 +20,10 @@ const box=(title,html)=>'<section class="cfg-card"><h3>'+title+'</h3>'+html+'</s
 const row=(title,key)=>'<div class="cfg-kv"><span>'+title+'</span>'+reading(key)+'</div>';
 const opt=(name,arr,sel=0)=>'<select aria-label="'+name+'" data-select="'+name+'">'+arr.map((s,i)=>'<option value="'+i+'" '+(sel===i?'selected':'')+'>'+s+'</option>').join('')+'</select>';
 const act=(id,text,cls='')=>'<button type="button" class="cfg-btn '+cls+'" data-act="'+id+'">'+text+'</button>';
-const full=(text)=>act('full',text,'cfg-primary');
+
 const canvas=(name='live')=>'<canvas data-scene="'+name+'" class="cfg-scene" role="img" aria-label="'+(name==='live'?'Reported aircraft attitude':'Areion Quad X model')+'"></canvas>';
 const spark=(tag,i)=>'<div class="cfg-track"><i data-meter="'+tag+i+'"></i></div>';
-const channelCell=(i)=>'<tr><th scope="row">CH'+(i+1)+'</th><td>'+reading('use'+i)+'</td><td>'+reading('ch'+i)+spark('ch',i)+'</td><td>'+reading('min'+i)+'</td><td>'+reading('center'+i)+'</td><td>'+reading('max'+i)+'</td><td>'+reading('reverse'+i)+'</td></tr>';
+const channelCell=(i)=>'<tr><th scope="row">CH'+(i+1)+'</th><td>'+reading('use'+i)+'</td><td>'+reading('ch'+i)+spark('ch',i)+'</td><td>'+reading('min'+i)+'</td><td>'+reading('center'+i)+'</td><td>'+reading('max'+i)+'</td><td>'+extras.reverse(i)+'</td></tr>';
 const sticks=()=>'<div class="cfg-sticks">'+['Yaw / Throttle','Roll / Pitch'].map((s,i)=>'<div><div class="cfg-stick"><i data-stick="'+i+'" hidden></i></div><small>'+s+'</small><br>'+reading('stick'+i)+'</div>').join('')+'</div>';
 const motorRows=()=>'<div class="cfg-motors">'+motorNames.map((s,i)=>'<div><span><b>M'+(i+1)+'</b> '+s+'</span>'+reading('motor'+i)+spark('motor',i)+'</div>').join('')+'</div>';
 const confirmation=(checked)=>'<label class="cfg-check"><input type="checkbox" data-props '+(checked?'checked':'')+'> All propellers removed</label>';
@@ -37,64 +39,100 @@ export function mount(root) {
   let page='wizard',step=0,confirmed=false,subPID=0,pickedProfile=0,pose=0,last=null,linkId=null;
   let offsetDraft=[null,null,null],endpoints=null,rxRun=false,statusRow=null;
   let tabRoots,sceneOrbit=0,profileEdited=false,responseAxis=0,responseAngle=0;
+  let restartView=false,escProfile=1,resumeStep=false;
+  const hardware=new ConfigPanel(root,{
+    state:()=>({page,step,confirmed,profile:pickedProfile,sensor,offsetDraft,endpoints,rxRun}),
+    clearReceiver:()=>{endpoints=null;rxRun=false;},
+    clearCaptures:()=>{if(sensor.active)sensor.stop('Capture stopped.');rxRun=false;},
+    resetDraft:()=>{sensor.clear();endpoints=null;rxRun=false;offsetDraft=[null,null,null];profileEdited=false;pickedProfile=0;}
+  });
+  const suspend=(opts={})=>hardware.suspend(opts);
+  window.addEventListener('blur',()=>suspend());
+  window.addEventListener('pagehide',()=>suspend());
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();});
+  function directControls(){return '<div class="cfg-actions cfg-session">'+confirmation(confirmed)+extras.begin()+extras.finalize()+'</div>';}
   function safetyPage(){
     return box('Remove propellers',canvas('profile')+'<p>Motors can start during kit setup. Keep all propellers removed until setup is complete.</p>'+confirmation(confirmed))+
-      box('Kit connection',row('Board','kit')+row('Firmware','firmware')+row('Arming','armed')+row('Setup lock','locked')+'<p>Browse steps here. Start kit setup in the full console to engage the controller’s arming lock.</p>'+full('Start kit setup'));
+      box('Kit connection',row('Board','kit')+row('Firmware','firmware')+row('Arming','armed')+row('Setup lock','locked')+'<p>Begin setup to lock arming and load the current kit settings.</p>'+extras.begin()+extras.reset());
   }
   function aircraft(){
-    return box('Aircraft profile',opt('Aircraft preview',profiles,pickedProfile)+canvas('profile')+act('rotate','Rotate model'))+
-      box('Quad X',row('Saved profile','profile')+'<div class="cfg-kv"><span>Vehicle</span><strong>Multirotor</strong></div><div class="cfg-kv"><span>Frame</span><strong>Quadcopter · X</strong></div><div class="cfg-kv"><span>Motor drive</span><strong>Brushless ESC</strong></div>'+full('Set aircraft profile'));
+    return box('Aircraft profile',opt('Aircraft preview',profiles,pickedProfile)+canvas('profile')+act('rotate','Rotate model')+'<p>Changing profile loads the profile’s default gains. Saving the current profile keeps tuned gains.</p>')+
+      box('Quad X',row('Saved profile','profile')+'<div class="cfg-kv"><span>Vehicle</span><strong>Multirotor</strong></div><div class="cfg-kv"><span>Frame</span><strong>Quadcopter · X</strong></div><div class="cfg-kv"><span>Motor drive</span><strong>Brushless ESC</strong></div>'+extras.profile());
   }
   function wiring(){
     return box('Areion FC A1 · fixed connections','<div class="cfg-wires">'+['D0 / GPIO 0|OUT 1|ESC 1 · M1','D1 / GPIO 1|OUT 2|ESC 2 · M2','D2 / GPIO 2|OUT 3|ESC 3 · M3','D3 / GPIO 21|OUT 4|ESC 4 · M4','D10 / GPIO 18|PPM|PPM receiver','D4 / GPIO 22|SDA|IMU SDA','D5 / GPIO 23|SCL|IMU SCL'].map(s=>{const [a,b,c]=s.split('|');return '<div><code>'+a+'</code><i></i><b>'+b+'</b><i></i><strong>'+c+'</strong></div>';}).join('')+'</div>')+
-      box('Flight input',row('Selected','selected')+row('Active','active')+row('Input health','inputHealth')+'<p>Disconnect power while wiring. Connect each ESC to its matching board output.</p>'+full('Choose flight input'));
+      box('Flight input',row('Selected','selected')+row('Active','active')+row('Input health','inputHealth')+'<p>Disconnect power while wiring. Connect each ESC to its matching board output.</p>'+extras.source());
   }
   function sensors(){
     const rows=axes3.map((a,i)=>'<tr><th>'+a+'</th><td>'+reading('off'+i)+'</td><td><input type="number" data-off="'+i+'" step=".001" min="-.5" max=".5" aria-label="'+a+' draft offset in g" value="'+(offsetDraft[i]??'')+'" placeholder="FC offset"></td><td>'+reading('after'+i)+'</td></tr>').join('');
     return box('Live IMU',canvas('live')+row('Roll / pitch / relative yaw','rpy')+row('Gyro X / Y / Z','rates')+row('Sensor','imuHealth'))+
-      box('Accelerometer offsets',kvTable(['Axis','FC offset (g)','Draft (g)','After offset (g)'],rows)+'<p>After-offset readings preview the draft on this screen.</p>'+row('Candidate offsets (g)','candidate')+full('Apply offsets in full console'))+
+      box('Accelerometer offsets',kvTable(['Axis','FC offset (g)','Draft (g)','After offset (g)'],rows)+'<p>After-offset readings preview the draft on this screen.</p>'+row('Candidate offsets (g)','candidate')+extras.imu())+
       box('Six-position accelerometer check',canvas('target')+opt('Target pose',poses.map(p=>p[0]),pose)+'<div class="cfg-actions">'+act('pose','Capture position')+act('reset-sensor','Reset captures')+'</div><progress data-progress="sensor" value="0" max="1"></progress>'+row('Positions','faces')+reading('sensorNote'))+
-      box('Stationary gyro check',confirmation(confirmed)+'<p>Keep the disarmed kit still on a level surface. Each capture uses at least 20 samples over three seconds.</p>'+act('gyro','Capture gyro residual')+row('Residual (°/s)','bias')+row('Gyro after residual (°/s)','afterGyro'));
+      box('Stationary gyro check','<p>Keep the disarmed kit still on a level surface. Each capture uses at least 20 samples over three seconds.</p>'+act('gyro','Capture gyro residual')+row('Residual (°/s)','bias')+row('Gyro after residual (°/s)','afterGyro'));
   }
   function receiver() {
-    return box('Receiver activity',sticks()+row('Selected input','selected')+row('Active input','active')+row('Receiver','inputHealth')+row('Switch channel','flightCh')+act('check-tx','Check transmitter'))+
-      box('PPM endpoint capture',confirmation(confirmed)+'<p>Sweep the sticks and switches through their full travel. This preview uses the raw PPM stream from the kit.</p><div class="cfg-actions">'+act('rx-capture','Capture range')+act('rx-clear','Clear range')+'</div>'+row('Raw PPM','rawStatus')+row('Samples','rxSamples')+full('Save receiver calibration'))+
-      '<section class="cfg-card cfg-wide"><h3>Physical PPM channels</h3>'+kvTable(['Channel','Function','Raw (µs)','Min','Center','Max','Direction'],Array.from({length:8},(_,i)=>channelCell(i)).join(''))+'<p>Min and max show captured ranges during this local check. Center and direction come from the controller.</p></section>';
+    return box('Receiver activity',sticks()+row('Selected input','selected')+row('Active input','active')+row('Receiver','inputHealth')+row('Switch channel','flightCh')+act('check-tx','Check transmitter')+extras.source())+
+      box('PPM endpoint capture','<p>Sweep the sticks and switches through their full travel. This preview uses the raw PPM stream from the kit.</p><div class="cfg-actions">'+act('rx-capture','Capture range')+act('rx-clear','Clear range')+'</div>'+row('Raw PPM','rawStatus')+row('Samples','rxSamples')+extras.receiver())+
+      '<section class="cfg-card cfg-wide"><h3>Physical PPM channels</h3>'+extras.mapping()+kvTable(['Channel','Function','Raw (µs)','Min','Center','Max','Direction'],Array.from({length:8},(_,i)=>channelCell(i)).join(''))+'<p>Min and max show captured ranges during this local check. Direction and channel assignment can be changed before saving.</p></section>';
   }
   function esc(){
-    return box('ESC calibration',row('Kit state','escState')+row('Output PWM','pwm')+row('Firmware range (duty)','duty')+'<div class="cfg-sequence">'+['Schedule','Power cycle','Endpoints','Confirm'].map((s,i)=>'<span data-phase="'+i+'">'+s+'</span>').join('')+'</div><p>One-shot endpoint calibration and response confirmation run in the full console.</p>'+full('Open ESC calibration'))+
-      box('Motor outputs',motorRows()+row('Verified outputs','mask')+'<p>Readings are commanded pulses. Check rotation physically with the propellers removed.</p>'+full('Open motor tests'));
+    return box('ESC calibration',opt('ESC profile',['Standard ESC · 50 Hz','PWM ESC · 250 Hz','OneShot ESC'],escProfile)+row('Kit state','escState')+row('Output PWM','pwm')+row('Firmware range (duty)','duty')+'<div class="cfg-sequence">'+['Schedule','Power cycle','Endpoints','Confirm'].map((s,i)=>'<span data-phase="'+i+'">'+s+'</span>').join('')+'</div>'+extras.esc())+
+      box('Motor outputs',motorRows()+row('Verified outputs','mask')+'<p>Readings are commanded pulses. Check rotation physically with the propellers removed.</p>'+extras.motors());
   }
   function arming(){
-    return box('Arming timings',row('ARM hold','armTime')+row('DISARM hold','disarmTime')+row('Idle auto-disarm','idleTime')+row('Low throttle','armThr'))+
-      box('Flight modes',row('Switch channel','flightCh')+row('Low position','modeLow')+row('High position','modeHigh')+row('Current mode','currentMode')+full('Edit arming & flight modes'));
+    return box('Arming timings',extras.arming())+
+      box('Flight modes',row('Current mode','currentMode')+extras.modes());
   }
   function review(){
     return box(step===9?'Verify after restart':'Setup review',row('Kit identity','kit')+row('Firmware revision','revision')+row('Setup lock','locked')+row('Setup complete','complete')+row('Storage','storage'))+
-      box('Controller checks',row('Sensors','sensorVerified')+row('Receiver','rxVerified')+row('ESC','escState')+row('Motors','mask')+full(step===9?'Open restart verification':'Review and save to kit'));
+      box('Controller checks',row('Sensors','sensorVerified')+row('Receiver','rxVerified')+row('ESC','escState')+row('Motors','mask')+(step===9?'<p>Save setup on the kit first. Reconnect the same kit after a restart to compare all eight saved groups.</p>'+extras.verify():extras.finalize()));
   }
+  function configurationResume(){return box('Resume setup',confirmation(confirmed)+extras.begin());}
   function wizard(){
-    const work=[safetyPage,aircraft,wiring,sensors,receiver,esc,()=>box('Motor outputs',motorRows()+row('Verified outputs','mask')+full('Open output calibration'))+box('Motor order',canvas('profile')+'<p>M1 front left · M2 front right · M3 rear right · M4 rear left.</p>'),arming,review,review];
-    return '<div class="cfg-wiz"><nav class="cfg-steps" aria-label="Setup steps">'+steps.map((s,i)=>'<button class="cfg-step" type="button" data-step="'+i+'" '+(i===step?'aria-current="step"':'')+(i&&!confirmed?' disabled':'')+'><span>'+String(i+1).padStart(2,'0')+'</span>'+s+'</button>').join('')+'</nav><div><div class="cfg-wiz-head"><div><small>Setup wizard</small><h2>'+steps[step]+'</h2></div><small>Step '+(step+1)+' / '+steps.length+'</small></div><div class="cfg-grid">'+work[step]()+'</div><div class="cfg-wiz-actions">'+act('back','Back')+(step<9?act('next','Next','cfg-primary'):'')+'</div></div></div>';
+    const work=[safetyPage,aircraft,wiring,sensors,receiver,esc,()=>box('Motor outputs',motorRows()+row('Verified outputs','mask')+extras.motors())+box('Motor order',canvas('profile')+'<p>M1 front left · M2 front right · M3 rear right · M4 rear left.</p>'),arming,review,review];
+    return '<div class="cfg-wiz"><nav class="cfg-steps" aria-label="Setup steps">'+steps.map((s,i)=>'<button class="cfg-step" type="button" data-step="'+i+'" '+(i===step?'aria-current="step"':'')+(i&&!confirmed&&!(restartView&&i===9)?' disabled':'')+'><span>'+String(i+1).padStart(2,'0')+'</span>'+s+'</button>').join('')+'</nav><div><div class="cfg-wiz-head"><div><small>Setup wizard</small><h2>'+steps[step]+'</h2></div><small>Step '+(step+1)+' / '+steps.length+'</small></div><div class="cfg-grid">'+(step>0&&(!confirmed||!hardware.entered)&&!restartView?configurationResume():'')+work[step]()+'</div><div class="cfg-wiz-actions">'+act('back','Back')+(step<9?act('next','Next','cfg-primary'):'')+'</div></div></div>';
+  }
+  let stickChoice=0,stickPulse=1500;
+  function stickCurve(){
+    return '<section class="cfg-card cfg-stick-preview"><div class="pid-line"><h3>Stick preview</h3>'+opt('Stick preview axis',['Angle · Roll / Pitch','Rate · Roll / Pitch','Yaw rate'],stickChoice)+'</div><svg viewBox="0 0 300 162" role="img" aria-label="Stick response curve">'+
+      '<path class="cfg-curve-grid" d="M40 12H285M40 76H285M40 140H285M40 12V140M101 12V140M162 12V140M224 12V140M285 12V140"/><g><text x="2" y="18" data-curve-max></text><text x="22" y="80">0</text><text x="2" y="138" data-curve-min></text><text x="28" y="156">1000</text><text x="149" y="156">1500</text><text x="264" y="156">2000</text></g>'+
+      '<line class="cfg-curve-base" x1="40" x2="285"/><line class="cfg-curve-line" x1="40" x2="285"/><circle class="cfg-curve-dot" r="4"/></svg><div class="pid-line"><strong data-stick-pulse></strong><strong data-stick-target></strong></div><input type="range" min="1000" max="2000" value="'+stickPulse+'" data-stick-pulse-control aria-label="Stick preview pulse"><small>Editor values · local preview</small></section>';
   }
   function pid(){
-    const gains=(g,n)=>kvTable(['Gain',...axes.slice(0,n)],['P','I','D'].map((k,i)=>'<tr><th scope="row">'+k+'</th>'+Array.from({length:n},(_,j)=>'<td>'+reading('gain'+g+'-'+(i*n+j))+'</td>').join('')+'</tr>').join(''));
+    const matrix=(g,n,title,caption)=>{
+      const table=kvTable(['',...axes.slice(0,n)],['P · Proportional','I · Integral','D · Derivative'].map((k,i)=>'<tr><th scope="row">'+k+'</th>'+Array.from({length:n},(_,j)=>'<td>'+editor(g,i*n+j,k+' '+axes[j]+' '+(g===2?'rate':'angle'))+'</td>').join('')+'</tr>').join(''));
+      return '<section class="cfg-card pid-matrix"><div class="pid-line"><h3>'+title+' <small>'+caption+'</small></h3><label><input type="checkbox" data-confirm="axis-'+g+'"> Link roll/pitch</label></div>'+table+'<div class="cfg-actions">'+
+        ['read','saved','revert'].map((action,i)=>'<button type="button" class="cfg-btn" data-kit="'+action+'-'+g+'">'+['Read FC','Read saved','Revert'][i]+'</button>').join('')+extras.pid(g)+'</div><small>'+reading('boardGain')+'</small></section>';
+    };
+    const tracking=()=>'<section class="cfg-card cfg-tracking"><div class="pid-line"><h3>Tracking response</h3><div>'+opt('Loop',['Rate','Angle'],responseAngle)+opt('Axis',axes.slice(0,responseAngle?2:3),responseAxis)+'</div></div><small>Measured <b class="cfg-meas">━</b> &nbsp; Target <b class="cfg-target">━</b> · '+(responseAngle?'degrees':'degrees / second')+' · 10 s</small><canvas data-response class="cfg-response" role="img" aria-label="Measured and target response over ten seconds"></canvas></section>';
     const views=[
-      ()=>box('Inner loop · rate',gains(2,3))+box('Outer loop · angle',gains(3,2)),
-      ()=>box('Stick response',row('Angle scale','angleScale')+row('Rate scale','rateScale')+row('Yaw scale','yawScale')+row('Input deadband','deadband'))+box('Live targets',row('Roll / pitch / yaw (°/s)','targets')+row('Measured gyro (°/s)','rates')+row('Target roll / pitch (°)','targetAngles'))+'<section class="cfg-card cfg-wide"><h3>Tracking response</h3><div class="cfg-actions">'+opt('Loop',['Rate','Angle'],responseAngle)+opt('Axis',axes.slice(0,responseAngle?2:3),responseAxis)+'</div><canvas data-response class="cfg-response" role="img" aria-label="Measured and target tracking response over ten seconds"></canvas><small>Measured <b class="cfg-meas">━</b> &nbsp; Target <b class="cfg-target">━</b> · '+(responseAngle?'degrees':'degrees / second')+'</small></section>',
-      ()=>box('Stored tune',row('Pending','pending')+row('Active revision','pidRev')+row('Stored revision','pidSaved')+row('Controller result','pidError'))+box('Aircraft',row('Saved profile','profile')+canvas('profile'))
+      ()=>'<div class="cfg-pid-matrices">'+matrix(2,3,'Rate PID','Inner loop')+matrix(3,2,'Attitude PID','Outer loop')+'</div><div class="cfg-gain-plots">'+tracking()+stickCurve()+'</div>',
+      ()=>'<div class="cfg-pid-matrices">'+box('Flight mode & stick response',extras.response()+row('Input deadband','deadband')+extras.modes())+stickCurve()+'</div>',
+      ()=>'<div class="cfg-pid-matrices">'+box('Receiver & arming',extras.arming()+act('go-arm','Open setup settings'))+box('Board configuration',row('Aircraft profile','profile')+row('Input source','selected')+row('Setup revision','revision')+row('Stored PID revision','pidSaved'))+'</div>'
     ];
-    return '<div class="cfg-tabs">'+['Gains','Response','Stored tune'].map((p,i)=>'<button type="button" data-pid="'+i+'" aria-pressed="'+(subPID===i)+'">'+p+'</button>').join('')+'</div><div class="cfg-grid">'+views[subPID]()+'</div><div class="cfg-actions">'+full('Open PID tuning & apply')+'</div>';
+    return '<section class="cfg-pid"><div class="cfg-pid-head"><h2><img src="./assets/console/launch-pid.svg" alt=""> PID tuning</h2><div class="cfg-tabs">'+['Gain tuning','Stick response','Receiver & arming'].map((p,i)=>'<button type="button" data-pid="'+i+'" aria-pressed="'+(subPID===i)+'">'+p+'</button>').join('')+'</div></div><div class="cfg-pid-state">'+reading('pidSummary')+extras.bench()+'</div>'+views[subPID]()+'</section>';
+  }
+  function drawCurve(ctx){
+    const graph=root.querySelector('.cfg-stick-preview');if(!graph)return;
+    const i=stickChoice+1,active=ctx.group(7)?.[i],scale=hardware.draft.get('7:'+i)??active??defaults[7][i];
+    const top=Math.max(10,Math.ceil(Math.max(scale,active??0)*50)*10),unit=i===1?'°':'°/s';
+    const y=(pulse,gain)=>76-(pulse-1500)*gain/top*64;
+    for(const [line,gain] of [['.cfg-curve-line',scale],['.cfg-curve-base',active??scale]]){
+      const el=graph.querySelector(line);el.setAttribute('y1',y(1000,gain));el.setAttribute('y2',y(2000,gain));}
+    const dot=graph.querySelector('circle');dot.setAttribute('cx',40+(stickPulse-1000)*.245);dot.setAttribute('cy',y(stickPulse,scale));
+    for(const [selector,value] of [['[data-curve-max]','+'+top+unit],['[data-curve-min]','−'+top+unit],['[data-stick-pulse]',stickPulse+' µs'],['[data-stick-target]',((stickPulse-1500)*scale).toFixed(1)+unit]])graph.querySelector(selector).textContent=value;
   }
   function draw(){
     root.innerHTML='<nav class="cfg-tabs" aria-label="Configuration sections">'+Object.entries(panes).map(([key,title])=>'<button type="button" data-nav="'+key+'" '+(key===page?'aria-current="page"':'')+'>'+title+'</button>').join('')+'</nav>'+
-      (page==='wizard'?wizard():page==='pid'?pid():'<div class="cfg-grid">'+({imu:sensors,input:receiver,esc})[page]()+'</div>');
+      (page==='wizard'?wizard():page==='pid'?pid():directControls()+'<div class="cfg-grid">'+({imu:sensors,input:receiver,esc})[page]()+'</div>')+'<div role="status" class="cfg-operation" data-operation></div>';
     tabRoots=new Map();
     root.querySelectorAll('[data-r]').forEach(el=>{const key=el.dataset.r;if(!tabRoots.has(key))tabRoots.set(key,[]);tabRoots.get(key).push(el);});
     if(last) update(last);
   }
   function show(name='wizard'){
     const target=Object.hasOwn(panes,name)?name:'wizard';
+    if(target!==page)hardware.pageChange();
+    restartView=name==='restart';if(restartView)step=9;
     if(page!==target && sensor.active) sensor.stop('Capture cancelled.');
     if(page!==target) rxRun=false;
     page=target;draw();
@@ -116,10 +154,10 @@ export function mount(root) {
     if(sensor.baseline&&base&&!sensor.baseline.every((x,i)=>x===base[i]))sensor.clear();
     if(sensor.active&&(!gate(ctx)||!ctx.snapshot.imu||!base||ctx.clock-sensor.active.started>12000))
       sensor.stop('Capture stopped. Check disarmed kit and live IMU.');
-    if(rxRun&&!gate(ctx))rxRun=false;
+    if(rxRun&&(!gate(ctx)||!hardware.lock)){rxRun=false;endpoints=null;}
   }
   function onPacket(packet,source) {
-    if(root.hidden || source!=='usb') {if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;return;}
+    if(root.hidden || !['usb','ap'].includes(source)) {if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;return;}
     if(packet.group===120){statusRow=packet;if(packet.values[0]||!packet.values[2]||!packet.values[5]){if(sensor.active)sensor.stop('Capture stopped. Kit must be disarmed with valid IMU.');}}
     if(packet.group===21){
       if(sensor.active && statusRow?.values[0]===false && packet.at>=statusRow.at && packet.at-statusRow.at<=500)
@@ -129,11 +167,12 @@ export function mount(root) {
       if(rxRun){
         const v=packet.values,n=v[8],timeout=last?.model.get(112,packet.at,Infinity)?.[0]??250;
         const selected=last?.model.get(122,packet.at,500);
-        if(!v[9]||n<4||n>8||v[10]>=timeout||!statusRow || statusRow.values[0]!==false || packet.at-statusRow.at>500 || selected?.[0]!==0 || !selected?.[2]){rxRun=false;return;}
+        if(!v[9]||n<4||n>8||v.slice(0,n).some(x=>x<900||x>2100)||v.slice(n,8).some(x=>x!==0)||v[10]>=timeout||!statusRow || statusRow.values[0]!==false || packet.at-statusRow.at>500 || selected?.[0]!==0 || !selected?.[2]){rxRun=false;endpoints=null;return;}
         if(endpoints.count&&endpoints.count!==n){rxRun=false;endpoints=null;return;}
         endpoints.count=n;
         for(let i=0;i<n;i++){endpoints.min[i]=Math.min(endpoints.min[i],v[i]);endpoints.max[i]=Math.max(endpoints.max[i],v[i]);}
-        endpoints.samples++;
+        if(!endpoints.samples)endpoints.first=packet.at;
+        endpoints.last=packet.at;endpoints.samples++;
       }
     }
   }
@@ -145,9 +184,11 @@ export function mount(root) {
     const yes=v=>typeof v==='boolean'?(v?'Yes':'No'):blank;
     const triple=(arr,d=2)=>arr?arr.map(v=>fmt(v,'',d)).join(' / '):blank;
     syncSafety(ctx);
-    if(!confirmed&&step>0&&page==='wizard'){step=0;draw();return;}
+    if(!confirmed&&step>0&&page==='wizard'&&!restartView&&!resumeStep){step=0;draw();return;}
     if(!profileEdited && cfg) pickedProfile=cfg[0];
     const values={
+      boardGain:ctx.state==='connected'?'Controller values':'Firmware defaults · awaiting FC read',
+      pidSummary:pidStatus?(pidStatus[3]|| (pidStatus[0]?'PID · Active in RAM, save after disarm':'PID · Saved revision '+pidStatus[2])):'PID · Status unavailable',
       kit:get(130)?.[15],firmware:dev?.[0],armed:s.status?(s.status[0]?'Armed':'Disarmed'):null,locked:yes(fc?.[0]),complete:yes(fc?.[1]),storage:s.health.storage.label,revision:fc?.[13],
       profile:profiles[cfg?.[0]],selected:sourceNames[get(122,500)?.[0]??get(110)?.[0]],active:['None','PPM','AP','USB'][get(122,500)?.[1]],inputHealth:s.input.label,
       rpy:s.imu?[s.imu.roll,s.imu.pitch,s.imu.yaw].map(v=>fmt(v,'°',1)).join(' / '):blank,
@@ -162,7 +203,7 @@ export function mount(root) {
     for(const g of [2,3])for(let i=0;i<(g===2?9:6);i++)set('gain'+g+'-'+i,fmt(get(g)?.[i],'',3));
     for(let i=0;i<3;i++){
       set('off'+i,fmt(base?.[i],'',4));
-      set('after'+i,imu&&base?fmt(imu[i+3]-base[i]+(offsetDraft[i]??base[i]),'',4):blank);
+      set('after'+i,imu&&base?fmt(imu[i+3]-base[i]+(offsetDraft[i]??sensor.offsets?.[i]??base[i]),'',4):blank);
     }
     const functions=['Roll','Pitch','Throttle','Yaw'];
     for(let i=0;i<8;i++){
@@ -189,26 +230,32 @@ export function mount(root) {
     }
     const sel=root.querySelector('[data-select="Aircraft preview"]');if(sel)sel.value=String(pickedProfile);
     for(const ph of root.querySelectorAll('[data-phase]'))ph.classList.toggle('on',fc?.[3]!==5 && [1,2,3,4].slice(0,Math.min(4,fc?.[3]??0)).includes(Number(ph.dataset.phase)+1));
+    if(page==='pid')drawCurve(ctx);
     const chart=root.querySelector('[data-response]');if(chart)drawResponse(chart,ctx,responseAxis,!!responseAngle);
-    const canSample=confirmed&&gate(ctx)&&!!imu&&!!base&&!sensor.active;
-    const buttons={back:!step,next:!confirmed,pose:!canSample||sensor.faces.has(pose),gyro:!canSample,'rx-capture':!rxRun&&(!confirmed||!gate(ctx)||!rawFresh||get(122,500)?.[0]!==0||!get(122,500)?.[2])};
+    const canSample=confirmed&&hardware.lock&&gate(ctx)&&!!imu&&!!base&&!sensor.active;
+    const buttons={back:!step,next:!confirmed||(hardware.live&&!hardware.lock&&step<8),pose:!canSample||sensor.faces.has(pose),gyro:!canSample,'rx-capture':!rxRun&&(!confirmed||!hardware.lock||!gate(ctx)||!rawFresh||get(122,500)?.[0]!==0||!get(122,500)?.[2])};
     for(const [key,disabled] of Object.entries(buttons)){const b=root.querySelector('[data-act="'+key+'"]');if(b)b.disabled=!!disabled;}
     const rx=root.querySelector('[data-act="rx-capture"]');if(rx)rx.textContent=rxRun?'Stop capture':'Capture range';
+    hardware.refresh(ctx);
     const progress=root.querySelector('[data-progress="sensor"]');if(progress)progress.value=sensor.active?sensor.progress:sensor.faces.has(pose)?1:0;
   }
-  function reset(){last=null;clearSessions();if(page==='wizard')step=0;draw();}
+  function reset(){resumeStep=page==='wizard'&&step>0;last=null;clearSessions();hardware.reset();draw();}
+  root.addEventListener('wheel',event=>{if(event.target.matches('input[type="number"],select')&&document.activeElement===event.target)event.target.blur();},{passive:true});
   root.addEventListener('change',event=>{
     const el=event.target;
     if(el.hasAttribute('data-props')){
       confirmed=el.checked;
-      if(!confirmed){rxRun=false;if(sensor.active)sensor.stop('Capture cancelled.');if(page==='wizard')step=0;}
+      if(!confirmed){hardware.suspend();rxRun=false;if(sensor.active)sensor.stop('Capture cancelled.');if(page==='wizard')step=0;}
       draw();
-    } else if(el.dataset.select==='Aircraft preview'){pickedProfile=Number(el.value);profileEdited=true;if(last)update(last);}
+    } else if(el.dataset.select==='ESC profile'){escProfile=Number(el.value);hardware.confirm.delete('compatible');hardware.confirm.delete('tones');hardware.confirm.delete('skip');hardware.refresh(last);}
+    else if(el.dataset.select==='Aircraft preview'){pickedProfile=Number(el.value);profileEdited=true;if(last)update(last);}
+    else if(el.dataset.select==='Stick preview axis'){stickChoice=Number(el.value);if(last)drawCurve(last);}
     else if(el.dataset.select==='Loop'){responseAngle=Number(el.value);if(responseAngle)responseAxis=Math.min(1,responseAxis);draw();}
     else if(el.dataset.select==='Axis'){responseAxis=Number(el.value);if(last)update(last);}
     else if(el.dataset.select==='Target pose'){pose=Number(el.value);if(last)update(last);}
   });
   root.addEventListener('input',event=>{
+    if(event.target.hasAttribute('data-stick-pulse-control')){stickPulse=Number(event.target.value);if(last)drawCurve(last);return;}
     const key=event.target.dataset.off;if(key===undefined)return;
     const x=event.target.valueAsNumber;offsetDraft[Number(key)]=Number.isFinite(x)&&Math.abs(x)<=.5?x:null;if(last)update(last);
   });
@@ -216,13 +263,14 @@ export function mount(root) {
     const el=event.target.closest('button');if(!el||el.disabled)return;
     if(el.dataset.nav){last?.navigate('configuration/'+el.dataset.nav);return;}
     if(el.hasAttribute('data-pid')){subPID=Number(el.dataset.pid);draw();return;}
-    if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;step=Number(el.dataset.step);draw();}return;}
+    if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){hardware.pageChange();restartView=false;resumeStep=false;if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;step=Number(el.dataset.step);draw();}return;}
     switch(el.dataset.act){
-      case 'full':last?.fullConsole();break;
+
+      case 'go-arm':step=7;resumeStep=true;last?.navigate('configuration/wizard');return;
       case 'check-tx':last?.checkTransmitter();break;
-      case 'next':case 'back':if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;step=Math.max(0,Math.min(9,step+(el.dataset.act==='next'?1:-1)));draw();break;
+      case 'next':case 'back':hardware.pageChange();restartView=false;resumeStep=false;if(sensor.active)sensor.stop('Capture cancelled.');rxRun=false;step=Math.max(0,Math.min(9,step+(el.dataset.act==='next'?1:-1)));if(step===4&&last?.group(134)?.[1]>0)step+=el.dataset.act==='next'?1:-1;draw();break;
       case 'rotate':sceneOrbit=(sceneOrbit+45)%360;break;
-      case 'pose':case 'gyro':if(last&&gate(last)&&confirmed&&last.snapshot.imu)sensor.begin(el.dataset.act==='pose'?pose:'gyro',last.clock,last.group(6));break;
+      case 'pose':case 'gyro':if(last&&gate(last)&&confirmed&&hardware.lock&&last.snapshot.imu)sensor.begin(el.dataset.act==='pose'?pose:'gyro',last.clock,last.group(6));break;
       case 'reset-sensor':sensor.clear();break;
       case 'rx-clear':endpoints=null;rxRun=false;break;
       case 'rx-capture':if(!rxRun){endpoints={min:Array(8).fill(Infinity),max:Array(8).fill(-Infinity),samples:0,count:0};}rxRun=!rxRun;break;
@@ -230,5 +278,5 @@ export function mount(root) {
     if(last)update(last);
   });
   draw();
-  return {show,update,onPacket,reset};
+  return {show,update,onPacket,reset,suspend};
 }

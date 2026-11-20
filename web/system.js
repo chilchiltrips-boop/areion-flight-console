@@ -2,12 +2,57 @@ import {active, copyReport, downloadCsv, hookTabs, node, numeric, put} from './a
 import {fields} from './telemetry-fields.js';
 
 const cached=new Set([2,3,4,6,7,110,112,121,125,132,134]);
-const label=name=>name.replaceAll('_',' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2');
+function label(name){
+  const gain=/^([PID])(?:Rate|Angle)(Roll|Pitch|Yaw)$/.exec(name);
+  return gain ? gain[1]+' · '+gain[2] : name.replaceAll('_',' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2');
+}
+
+export function connectionReadout(ctx) {
+  const report=ctx.model.frames.get(120);
+  const wifi=ctx.group(121);
+  const path=ctx.path || 'USB';
+  const endpoint=ctx.replay?'—':ctx.portLabel || '—';
+  const age=report && ctx.clock>=report.at ? Math.round(ctx.clock-report.at)+' ms ago' : '—';
+  return [
+    ['Transport',ctx.replay?'CSV playback':path==='AP'?'AP Wi-Fi':'USB serial'],
+    ['Link',ctx.state],
+    ['Endpoint',endpoint],
+    ['USB baud',!ctx.replay && path==='USB'?'115200':'—'],
+    ['Flight input',ctx.snapshot.source || '—'],
+    ['Latest FC report',age],
+    ['Received packets',(ctx.packetCount ?? ctx.rows.length).toLocaleString()],
+    ['FC access point',wifi?(wifi[0]?wifi[1]+':'+wifi[2]+' · UDP':'Offline'):'—']
+  ];
+}
 
 export function mount(root){
   root.classList.add('ac-surface');
-  root.innerHTML='<div class="ac-toolbar"><div class="ac-tabs"><button data-tab="values">All values</button><button data-tab="events">Event log</button><button data-tab="connections">Connections</button></div><div class="ac-actions"><button data-csv>Export CSV</button><button data-copy>Copy diagnostics</button></div></div><div class="ac-box" data-values><div class="ac-filter"><input type="search" aria-label="Filter telemetry fields" placeholder="Filter group or field"><span data-count></span></div><div class="ac-table-wrap ac-values"><table class="ac-table"><thead><tr><th>Section</th><th>Field</th><th>Value</th><th>Age</th><th>State</th></tr></thead><tbody></tbody></table></div></div><div class="ac-box" data-events hidden><h3>Session events</h3><ol class="ac-log"></ol></div><div class="ac-box" data-connections hidden><h3>Kit communication</h3><dl class="ac-details"></dl><div class="ac-actions"><button data-usb>Connect USB</button><button data-full>Open full console</button></div></div><div class="ac-note" role="status"></div>';
-  const valuesPane=root.querySelector('[data-values]'), eventsPane=root.querySelector('[data-events]'), connectionsPane=root.querySelector('[data-connections]'),body=root.querySelector('tbody'),info=root.querySelector('.ac-note'),search=root.querySelector('input'),count=root.querySelector('[data-count]'),csv=root.querySelector('[data-csv]'),usb=root.querySelector('[data-usb]'),events=root.querySelector('.ac-log');
+  root.innerHTML=`
+    <nav class="ac-sectionbar ac-tabs" data-section aria-label="System sections">
+      <button data-tab="values">Live values</button><button data-tab="connections">Connection</button>
+    </nav>
+    <h1 class="ac-title">System</h1>
+    <div data-live>
+      <div class="ac-toolbar">
+        <div class="ac-filter"><input type="search" aria-label="Filter telemetry fields" placeholder="Filter fields"><span data-count></span></div>
+        <div class="ac-actions"><button data-csv>Export CSV</button><button data-copy>Copy diagnostics</button></div>
+      </div>
+      <nav class="ac-tabs ac-subtabs" data-logtabs aria-label="Live values views">
+        <button data-tab="values">All values</button><button data-tab="events">Event log</button>
+      </nav>
+      <div class="ac-table-wrap ac-values" data-values>
+        <table class="ac-table"><thead><tr><th>Section</th><th>Field</th><th>Value</th><th>Age</th><th>State</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="ac-box" data-events hidden><ol class="ac-log" aria-label="Session events"></ol></div>
+    </div>
+    <section class="ac-box" data-connections hidden>
+      <h2>Kit communication</h2><dl class="ac-details"></dl>
+      <div class="ac-actions"><button data-connect>Connect</button></div>
+    </section>
+    <div class="ac-note" role="status"></div>`;
+  const find=selector=>root.querySelector(selector);
+  const livePane=find('[data-live]'), valuesPane=find('[data-values]'), eventsPane=find('[data-events]'), connectionsPane=find('[data-connections]'), body=find('tbody');
+  const info=find('.ac-note'), search=find('input'), count=find('[data-count]'), csv=find('[data-csv]'), connect=find('[data-connect]'), events=find('.ac-log');
   const rows=[];
   for(const [id,[group,names]] of fields){
     for(const [index,name] of names.entries()){
@@ -19,12 +64,17 @@ export function mount(root){
     }
   }
   let view='values',ctx=null,visible=rows,eventsKey=null;
-  const details=['Transport','Link','USB baud','Flight input','Latest FC report','Received packets','FC access point'];
-  const values=details.map(name=>{ const value=node('dd','—');root.querySelector('dl').append(node('dt',name),value);return value; });
-  const setTab=hookTabs(root.querySelector('.ac-tabs'),select);
+  const details=root.querySelector('dl'), detailCells=new Map();
+  const setSection=hookTabs(find('[data-section]'),route);
+  const setDetail=hookTabs(find('[data-logtabs]'),route);
+  function route(name){if(ctx?.navigate)ctx.navigate('system/'+name);else select(name);}
   function select(name){
     view=['values','events','connections'].includes(name)?name:'values';
-    setTab(view);valuesPane.hidden=view!=='values';eventsPane.hidden=view!=='events';connectionsPane.hidden=view!=='connections';
+    const connection=view==='connections';
+    setSection(connection?'connections':'values'); setDetail(view);
+    find('h1').textContent=connection?'Connection':'System';
+    livePane.hidden=connection; valuesPane.hidden=view!=='values'; eventsPane.hidden=view!=='events'; connectionsPane.hidden=!connection;
+    find('.ac-filter').hidden=view!=='values';
     if(ctx)update(ctx);
   }
   function filter(){
@@ -34,8 +84,7 @@ export function mount(root){
   }
   search.oninput=filter;
   root.querySelector('[data-copy]').onclick=()=>ctx&&copyReport(ctx,info);
-  root.querySelector('[data-full]').onclick=()=>ctx?.fullConsole?.();
-  usb.onclick=()=>ctx?.toggleUsb?.();
+  connect.onclick=()=>ctx?.toggleUsb?.();
   csv.onclick=()=>{if(!ctx)return;try{downloadCsv(ctx);}catch(e){put(info,e.message);}};
   function update(next){
     ctx=next;csv.disabled=!ctx.rows.length;
@@ -57,10 +106,14 @@ export function mount(root){
         if(!events.children.length)events.append(node('li','No session events.'));
       }
     }else {
-      const row=ctx.model.frames.get(120),link=ctx.group(121);
-      const online=['opening','handshake','connected','stale'].includes(ctx.state);
-      const data=[ctx.replay?'CSV playback':'USB serial',ctx.state,ctx.replay?'—':'115200',ctx.snapshot.source||'—',row?Math.max(0,ctx.clock-row.at).toFixed(0)+' ms ago':'—',ctx.rows.length,link?(link[0]?link[1]+':'+link[2]:'Offline'):'—'];
-      data.forEach((v,i)=>put(values[i],v));put(usb,online?'Disconnect USB':'Connect USB');usb.disabled=ctx.replay;
+      for(const [name,value] of connectionReadout(ctx)){
+        let cell=detailCells.get(name);
+        if(!cell){cell=node('dd');details.append(node('dt',name),cell);detailCells.set(name,cell);}
+        put(cell,value);
+      }
+      const open=['opening','handshake','connected','stale'].includes(ctx.state);
+      put(connect,open?'Disconnect':'Connect '+(ctx.path || 'USB'));
+      connect.disabled=ctx.replay;
     }
   }
   filter();select('values');
