@@ -45,20 +45,21 @@ class CalibrationPanelTests(unittest.TestCase):
             self.identity if identity is None else identity,self.demo,safe)
 
     def face(self,key,bias=(.12,-.04,.08),gain=(1.04,.97,1.02)):
-        self.p.select_pose(key);self.push();self.p.start_pose()
-        self.assertIsNotNone(self.p.bank.current,self.p.acc_status.text())
+        if not self.p.active:
+            self.push();self.p.capture_button.click()
+        self.assertTrue(self.p.active,self.p.acc_status.text())
         start=self.clock;target=POSE_BY_KEY[key]['target']
         for i in range(36):
             self.clock=start+(i+1)*.1
             raw=[target[j]/gain[j]+bias[j] for j in range(3)]
             values=self.telemetry([raw[j]+self.baseline[j] for j in range(3)])
             self.push(values)
-            if not self.p.active:break
+            if key in self.p.bank.faces:break
         self.assertIn(key,self.p.bank.faces,self.p.acc_status.text())
         self.clock+=.1
 
     def all_faces(self):
-        for pose in POSES:self.face(pose['key'])
+        for pose in reversed(POSES):self.face(pose['key'])
         self.assertIsNotNone(self.p.config['result'],self.p.acc_status.text())
 
     def gyro_capture(self,rates=(.3,-.2,.1)):
@@ -143,15 +144,42 @@ class CalibrationPanelTests(unittest.TestCase):
                 self.assertIn('reset',self.p.acc_status.text())
 
     def test_invalid_data_cancels_current_pose_and_preserves_no_fake_result(self):
-        self.p.start_pose();self.assertTrue(self.p.active)
+        self.p.capture_button.click();self.assertTrue(self.p.active)
         self.clock+=.1;self.push(self.telemetry(valid=False))
         self.assertFalse(self.p.active);self.assertIsNone(self.p.config['result']);self.assertIsNone(self.p.bank)
 
-    def test_stationary_confirmation_withdrawal_cancels_capture(self):
-        self.p.start_pose();self.assertTrue(self.p.active)
+    def test_one_start_needs_no_manual_confirmation_and_cancel_clears_all_faces(self):
         self.p.stationary.setChecked(False)
-        self.assertFalse(self.p.active);self.assertIsNone(self.p.config['result']);self.assertFalse(self.p.capture_button.isEnabled())
-        self.assertIn('cancelled',self.p.acc_status.text())
+        self.face('nose_up')
+        self.assertTrue(self.p.active)
+        self.assertFalse(self.p.has_current_result)
+        self.assertEqual(self.p.pose_tiles['nose_up'].property('mark'),'done')
+        self.p.reset_button.click()
+        self.assertFalse(self.p.active)
+        self.assertIsNone(self.p.config['result'])
+        self.assertEqual(self.p.face_count.text(),'0 / 6')
+        self.assertTrue(self.p.capture_button.isEnabled())
+
+    def test_completed_result_can_only_be_saved_on_original_live_kit_and_baseline(self):
+        self.all_faces()
+        self.assertTrue(self.p.has_current_result)
+        self.push(identity=('new-kit',3))
+        self.assertFalse(self.p.has_current_result)
+        self.assertIsNone(self.p.bank)
+
+    def test_verified_readback_presented_as_saved_and_never_offered_as_new_measurement(self):
+        self.all_faces()
+        offsets=self.p.snapshot()['offsets']
+        self.p.mark_saved()
+        values=self.telemetry(baseline=offsets)
+        values[130]=[True,False,1,0,0,True]
+        self.push(values)
+        self.assertEqual(self.p.target_label.text(),'Calibration saved')
+        self.assertEqual(self.p.face_count.text(),'6 / 6')
+        self.assertFalse(self.p.has_current_result)
+        self.push(identity=('different-kit',123))
+        self.assertFalse(self.p.has_current_result)
+        self.assertEqual(self.p.face_count.text(),'0 / 6')
 
     def test_gyro_zero_changes_only_python_display_and_retains_fc_rates(self):
         self.gyro_capture();r=self.p.snapshot()['gyro_result']

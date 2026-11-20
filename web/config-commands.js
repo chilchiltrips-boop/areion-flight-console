@@ -58,6 +58,35 @@ export class SetupKit {
     await this.locked();await this.call('action',135,[name,...args]);
     const readback=await this.read(130);requireThat(verify(readback),'Controller did not confirm '+name+'.');return readback;
   }
+  async sensorState(kit){
+    const setup=await this.locked();
+    requireThat(setup[15] && (!kit || setup[15]===kit),'Controller identity changed.');
+    requireThat(!setup[8] && ![1,2].includes(setup[3]),'Finish the motor or ESC calibration first.');
+    return setup;
+  }
+  async saveSensor(kit,offsets,baseline,retry,onWrite){
+    await this.sensorState(kit);
+    const active=await this.read(6);
+    requireThat(equal(active,baseline) || retry && equal(active,offsets),'Controller offsets changed. Repeat calibration.');
+    onWrite();
+    await this.store(6,offsets,active);
+    // Applying offsets resets MCU attitude until the next valid sensor sample.
+    const deadline=performance.now()+1500;
+    let status;
+    do {
+      status=await this.read(120);
+      requireThat(status[0]===false && status[7],'Disarm the kit and check storage.');
+      if(status[2] && status[5]>0)break;
+      if(performance.now()>=deadline)throw Error('Offsets stored. The IMU is still unavailable. Retry verification once healthy.');
+      await new Promise(resolve=>setTimeout(resolve,50));
+    } while(true);
+    await this.sensorState(kit);
+    const ack=await this.call('action',135,['SENSOR_OK',1,0,0,0]);
+    requireThat(ack?.[0]==='SETUP_UPDATED','Sensor verification was not acknowledged.');
+    const after=await this.sensorState(kit);
+    requireThat(after[5]===true && equal(await this.read(6,true),offsets) && equal(await this.read(6),offsets),
+      'Controller could not verify the saved sensor calibration.');
+  }
   async reset(){
     await this.checkedAction('RESET_ALL',[1,0,0,0],s=>checkedLock(s)&&!s[3]&&!s[4]&&!s.slice(5,9).some(Boolean));
     for(const g of ids)requireThat(equal(await this.read(g),defaults[g])&&equal(await this.read(g,true),defaults[g]),'Factory reset could not be verified for group '+g+'.');

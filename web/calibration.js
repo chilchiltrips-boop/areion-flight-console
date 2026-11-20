@@ -1,54 +1,191 @@
-// Capture windows and opposite-face estimates follow sensor_calibration.py.
+// Reported acceleration already includes the three additive offsets in group 6.
+// Group 21's gyroscope rates include the controller's boot calibration.
 export const poses = [
-  ['Flat / level',2,1,[0,0,0]], ['Nose up',0,-1,[0,90,0]], ['Nose down',0,1,[0,-90,0]],
-  ['Left side down',1,-1,[-90,0,0]], ['Right side down',1,1,[90,0,0]], ['Upside down',2,-1,[180,0,0]]
+  ['Flat / level', 2, 1, [0, 0, 0]],
+  ['Nose up', 0, -1, [0, 90, 0]],
+  ['Nose down', 0, 1, [0, -90, 0]],
+  ['Left side down', 1, -1, [-90, 0, 0]],
+  ['Right side down', 1, 1, [90, 0, 0]],
+  ['Upside down', 2, -1, [180, 0, 0]]
 ];
-const mean = col => col.reduce((sum,v)=>sum+v,0)/col.length;
-const spread = col => {const m=mean(col); return Math.sqrt(mean(col.map(v=>(v-m)**2)));};
-export class SensorCheck {
-  constructor(){this.clear();}
-  clear() {this.active=null; this.faces=new Map(); this.offsets=null; this.gyro=null; this.note=''; this.baseline=null;}
-  begin(which,now,offsets) {
-    if(this.active || !offsets || (which !== 'gyro' && this.faces.has(which))) return false;
-    if(!this.baseline) this.baseline=[...offsets];
-    this.active={which,started:now,frames:[],times:[]};
-    this.note='Keep the board still.'; return true;
+
+const HOLD_MS = 3000, SAMPLES = 20, MAX_GAP_MS = 500;
+const GYRO_RESIDUAL_LIMIT = 1, FIT_ERROR_LIMIT = .12;
+const AXES = [0, 1, 2];
+const maximumAbs = vector => Math.max(...vector.map(Math.abs));
+
+function classify(acc) {
+  const norm = Math.hypot(...acc);
+  if (norm < .60 || norm > 1.55) return -1;
+  return poses.findIndex(([, axis, sign]) => {
+    const along = sign * acc[axis];
+    return along >= .55 && along <= 1.50 && acc.every((v, i) => i === axis || Math.abs(v) <= .35);
+  });
+}
+
+function detectPose(reported, raw) {
+  const current = classify(reported), uncorrected = classify(raw);
+  if (current >= 0 && uncorrected >= 0 && current !== uncorrected) return -1;
+  return current >= 0 ? current : uncorrected;
+}
+
+// Welford's recurrence keeps both the storage and per-packet cost bounded.
+class StationaryWindow {
+  constructor(face, at) {
+    this.face = face;
+    this.started = at;
+    this.last = null;
+    this.count = 0;
+    this.mean = Array(6).fill(0);
+    this.m2 = Array(6).fill(0);
+    this.low = Array(6).fill(Infinity);
+    this.high = Array(6).fill(-Infinity);
   }
-  stop(note) {this.active=null; this.note=note;}
+  add(sample, at) {
+    // Multiple complete frames can arrive in one browser read after a stall.
+    if (this.last !== null && at - this.last < 20) return;
+    this.count++;
+    this.last = at;
+    sample.forEach((value, i) => {
+      const delta = value - this.mean[i];
+      this.mean[i] += delta / this.count;
+      this.m2[i] += delta * (value - this.mean[i]);
+      this.low[i] = Math.min(this.low[i], value);
+      this.high[i] = Math.max(this.high[i], value);
+    });
+  }
   get progress() {
-    const cap=this.active;
-    if(!cap?.times.length) return 0;
-    return Math.min(1,(cap.times.at(-1)-cap.times[0])/3000,cap.times.length/20);
+    return this.last === null ? 0 : Math.min(1, (this.last - this.started) / HOLD_MS, this.count / SAMPLES);
   }
-  sample(values,at) {
-    const cap=this.active;
-    if(!cap || at<cap.started || at<=(cap.times.at(-1)??-Infinity)) return;
-    if(at-cap.started>12000 || cap.times.length && at-cap.times.at(-1)>500) return this.stop('Signal interrupted. Retry this capture.');
-    const a=values.slice(3,6), g=values.slice(0,3), mag=Math.hypot(...a);
-    if(![...a,...g].every(Number.isFinite) || Math.max(...g.map(Math.abs))>5 || mag<.6 || mag>1.5)
-      return this.stop('Movement detected. Steady the board and retry.');
-    if(cap.which !== 'gyro'){
-      const [,axis,sign]=poses[cap.which];
-      if(a[axis]*sign<.65 || a.some((v,i)=>i!==axis&&Math.abs(v)>.35)) return this.stop('Orientation differs from the target. Reposition the board and retry.');
+  get varied() {
+    return this.mean.some((_, i) =>
+      (i >= 3 && this.high[i] - this.low[i] > .10) ||
+      Math.sqrt(this.m2[i] / this.count) > (i < 3 ? .8 : .025));
+  }
+}
+
+export class SensorCheck {
+  constructor() { this.clear(); }
+
+  clear() {
+    this.phase = 'idle';
+    this.active = null;
+    this.detected = null;
+    this.window = null;
+    this.faces = new Map();
+    this.gyroMeans = new Map();
+    this.baseline = null;
+    this.offsets = null;
+    this.gyro = null;
+    this.quality = null;
+    this.note = '';
+  }
+  get nextPose() {
+    const index = poses.findIndex((_, i) => !this.faces.has(i));
+    return index < 0 ? null : index;
+  }
+  get progress() { return this.window?.progress ?? 0; }
+  get ready() { return this.phase === 'complete'; }
+
+  start(now, offsets) {
+    if (this.active || !Number.isFinite(now) || !Array.isArray(offsets) || offsets.length !== 3 ||
+        !offsets.every(v => Number.isFinite(v) && Math.abs(v) <= .5)) return false;
+    this.clear();
+    this.baseline = Object.freeze([...offsets]);
+    this.active = {started: now, last: null};
+    this.detecting('Rest the kit on any unfinished face.');
+    return true;
+  }
+  detecting(note, detected = null) {
+    this.window = null;
+    this.detected = detected;
+    this.phase = 'detecting';
+    this.note = note;
+  }
+  stop(note = 'Calibration stopped.') {
+    if (this.active) this.end('stopped', note);
+  }
+  end(phase, note) {
+    this.active = null;
+    this.window = null;
+    this.detected = null;
+    this.phase = phase;
+    this.note = note;
+  }
+  sample(values, at) {
+    if (!this.active) return;
+    if (!Number.isFinite(at) || !Array.isArray(values) || values.length < 6 ||
+        !values.slice(0, 6).every(Number.isFinite)) {
+      this.end('error', 'Invalid IMU sample. Check the link and restart calibration.');
+      return;
     }
-    cap.frames.push([...g,...a]); cap.times.push(at);
-    if(this.progress<1) return;
-    const cols=Array.from({length:6},(_,i)=>cap.frames.map(f=>f[i]));
-    if(cols.some((col,i)=>spread(col)>(i<3?.8:.025))) return this.stop('Samples varied. Remove vibration and retry.');
-    if(cap.which==='gyro') {this.gyro=cols.slice(0,3).map(mean);return this.stop('Stationary gyro residual captured locally.');}
-    this.faces.set(cap.which,cols.slice(3).map((col,i)=>mean(col)-this.baseline[i]));
-    this.stop('Position captured locally.');
-    if(this.faces.size===6){
-      const bias=[],scale=[];
-      for(let i=0;i<3;i++) {
-        const face=sign=>this.faces.get(poses.findIndex(([,axis,s])=>axis===i&&s===sign))[i];
-        const high=face(1),low=face(-1);
-        bias.push(-(high+low)/2); scale.push(2/(high-low));
-      }
-      const invalid=bias.some((b,i)=>!Number.isFinite(b)||Math.abs(b)>.5||scale[i]<.8||scale[i]>1.2);
-      const aligned=poses.every(([,axis,sign],idx)=>Math.hypot(...this.faces.get(idx).map((v,i)=>(v+bias[i])*scale[i]-(axis===i?sign:0)))<=.25);
-      if(invalid||!aligned)return this.stop('Six positions disagree. Reset captures and repeat.');
-      this.offsets=bias; this.note='Six-face estimate complete. Candidate offsets below.';
+    const {started, last} = this.active;
+    if (at < started || (last !== null && at <= last)) return;
+    if (at - (last ?? started) > MAX_GAP_MS) {
+      this.end('stopped', 'IMU signal interrupted. Restart when readings are live.');
+      return;
     }
+    this.active.last = at;
+    const rates = values.slice(0, 3), acc = values.slice(3, 6);
+    const raw = acc.map((v, i) => v - this.baseline[i]);
+    if (maximumAbs(rates) > 5) {
+      this.detecting('Movement detected. Hold the kit still.');
+      return;
+    }
+    const face = detectPose(acc, raw);
+    if (face < 0) {
+      this.detecting('Rest the kit squarely on one face.');
+      return;
+    }
+    if (this.faces.has(face)) {
+      this.detecting('Already captured. Move to an unfinished face.', face);
+      return;
+    }
+    if (this.window?.face !== face) this.window = new StationaryWindow(face, at);
+    this.detected = face;
+    this.phase = 'holding';
+    this.note = 'Keep the kit still.';
+    const window = this.window;
+    window.add([...rates, ...raw], at);
+    if (window.varied) {
+      this.detecting('Readings varied. Steady the kit and hold again.', face);
+      return;
+    }
+    if (window.progress < 1) return;
+    const gyro = window.mean.slice(0, 3);
+    if (maximumAbs(gyro) > GYRO_RESIDUAL_LIMIT) {
+      this.detecting('Gyro movement is too high. Keep still. If it persists, restart the kit level.', face);
+      return;
+    }
+    this.faces.set(face, Object.freeze(window.mean.slice(3)));
+    this.gyroMeans.set(face, gyro);
+    if (this.faces.size === poses.length) this.finish();
+    else this.detecting('Face captured. Move to an unfinished face.', face);
+  }
+  finish() {
+    const offsets = AXES.map(axis => {
+      const raw = sign => this.faces.get(poses.findIndex(([, i, s]) => i === axis && s === sign))[axis];
+      return -(raw(1) + raw(-1)) / 2;
+    });
+    // Validate the readings the kit can actually produce after saving. Its
+    // schema does not store scale or alignment, so neither enters this fit.
+    const residuals = poses.map(([, axis, sign], face) =>
+      this.faces.get(face).map((raw, i) => raw + offsets[i] - (i === axis ? sign : 0)));
+    const axisErrors = AXES.map(i => Math.max(...residuals.map(v => Math.abs(v[i]))));
+    const maxError = Math.max(...residuals.map(v => Math.hypot(...v)));
+    const gyros = [...this.gyroMeans.values()];
+    const gyroPeak = Math.max(...gyros.map(maximumAbs));
+    this.gyro = Object.freeze(AXES.map(i => gyros.reduce((sum, g) => sum + g[i], 0) / gyros.length));
+    this.quality = Object.freeze({axisErrors: Object.freeze(axisErrors), maxError, gyroPeak});
+    if (maximumAbs(offsets) > .5) {
+      this.end('error', 'Offset exceeds the kit range (±0.5 g). Check the sensor and repeat.');
+      return;
+    }
+    if (maxError > FIT_ERROR_LIMIT) {
+      this.end('error', 'Six-face readings exceed the 0.12 g fit limit. Check alignment and repeat.');
+      return;
+    }
+    this.offsets = Object.freeze(offsets);
+    this.end('complete', 'Six faces captured and gyro checked. Ready to save.');
   }
 }

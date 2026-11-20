@@ -1,0 +1,151 @@
+.imu-studio {
+  --imu-panel:#172a35;
+  --imu-edge:#354d58;
+  --imu-soft:#afc5cb;
+  --imu-green:#8ce4d2;
+  --imu-amber:#ffd18a;
+  min-width:0;
+  container-type:inline-size;
+}
+.imu-grid {
+  display:grid;
+  grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);
+  gap:.85rem;
+}
+.imu-card {
+  min-width:0;
+  padding:clamp(.85rem,1.45vw,1.25rem);
+  border:1px solid var(--imu-edge);
+  border-radius:.72rem;
+  background:linear-gradient(122deg,#1c3340,var(--imu-panel));
+  color:#eff8f7;
+}
+.imu-heading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:.4rem .7rem;
+  margin:0 0 .85rem;
+}
+.imu-studio .imu-heading h3 {
+  margin:0;
+  font-size:clamp(1.05rem,1.7vw,1.3rem);
+  line-height:1.2;
+  letter-spacing:-.02em;
+}
+.imu-live-chip,.imu-count,.imu-readings .imu-heading>span {
+  font-size:.76rem;
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+  color:var(--imu-soft);
+}
+.imu-live-chip {display:inline-flex;align-items:center;gap:.4rem}
+.imu-live-chip i {width:.4rem;height:.4rem;border-radius:50%;background:#8499a5}
+.imu-live-chip[data-live=yes] i {background:var(--imu-green);box-shadow:0 0 0 3px #86e3c51a}
+.imu-stage {display:flex;flex-direction:column}
+.imu-views {
+  display:grid;
+  grid-template-columns:1.12fr 1fr;
+  flex:1;
+  min-height:205px;
+  border:1px solid #37525d;
+  border-radius:.55rem;
+  overflow:hidden;
+  background:#10232c;
+}
+.imu-model {
+  position:relative;isolation:isolate;
+  display:grid;grid-template-rows:auto minmax(90px,1fr) auto;
+  min-width:0;margin:0;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 63%,#284751 0%,#132833 65%);
+}
+.imu-model::before {
+  content:"";position:absolute;left:-20%;right:-20%;bottom:-27%;height:84%;z-index:-1;
+  background-image:linear-gradient(#76b7b32b 1px,transparent 1px),linear-gradient(90deg,#76b7b32b 1px,transparent 1px);
+  background-size:22px 22px;
+  transform:perspective(140px) rotateX(60deg);
+  mask-image:linear-gradient(transparent,#0009 38%,#000 98%);
+}
+.imu-model figcaption {margin:.8rem .75rem 0;color:#a8c9cc;font-size:.76rem;line-height:1.2}
+.imu-model strong {margin:0 .75rem .8rem;color:#eef9f7;font-size:.93rem}
+.imu-live-model {border-left:1px solid #36505b;background:radial-gradient(ellipse at 50% 64%,#213b45,#12242d 69%)}
+.imu-model canvas {
+  display:block;width:100%;height:100%;position:absolute;left:0;top:0;pointer-events:none;
+}
+.imu-model figcaption,.imu-model strong {z-index:1}
+.imu-model strong {grid-row:3}
+.imu-model [data-sensor-placeholder] {
+  display:grid;align-content:center;justify-items:center;
+  align-self:stretch;color:#a7bbc5;font-size:.78rem;text-align:center;
+}
+.imu-attitude {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:.7rem 0 0}
+.imu-attitude div {min-width:0;padding-left:.8rem;border-left:1px solid #3c535c}
+.imu-attitude div:first-child {padding-left:0;border-left:0}
+.imu-attitude dt {font-size:.75rem;line-height:1.4;color:var(--imu-soft)}
+.imu-attitude dd {margin:.1rem 0 0;font-size:1rem;font-weight:600;font-variant-numeric:tabular-nums}
+.imu-count {border:1px solid #426462;background:#203f43;color:#b5eadd;padding:.2rem .48rem;border-radius:.35rem}
+.imu-faces {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem;list-style:none;padding:0;margin:0}
+.imu-faces li {
+  display:flex;align-items:center;gap:.55rem;min-width:0;
+  border:1px solid #3c525e;border-radius:.4rem;padding:.43rem .53rem;background:#172b36;
+}
+.imu-face-mark {
+  width:.7rem;height:.7rem;flex:none;border:1.5px solid #7c96a4;border-radius:100%;position:relative;
+}
+.imu-faces strong,.imu-faces li div>span {display:block;line-height:1.2}
+.imu-faces strong {font-size:.84rem;font-weight:600}
+.imu-faces li div>span {color:var(--imu-soft);margin:.15rem 0 0;font-size:.68rem}
+.imu-faces li[data-state=next] {border-color:#8c7959}
+.imu-faces li[data-state=next] .imu-face-mark {border-color:var(--imu-amber);background:#514734}
+.imu-faces li[data-state=next] div>span {color:var(--imu-amber)}
+.imu-faces li[data-state=holding] {border-color:#75cdbb;background:#1c4244}
+.imu-faces li[data-state=holding] .imu-face-mark {border-color:var(--imu-green);background:var(--imu-green);box-shadow:0 0 0 3px #89e2cc1f}
+.imu-faces li[data-state=captured] {background:#1d393d;border-color:#3b625e}
+.imu-faces li[data-state=captured] .imu-face-mark {border-color:transparent}
+.imu-faces li[data-state=captured] .imu-face-mark::after {content:"";position:absolute;top:0;left:2px;width:4px;height:8px;border:solid var(--imu-green);border-width:0 1.8px 1.8px 0;transform:rotate(42deg)}
+.imu-faces li:is([data-state=captured],[data-state=holding]) div>span {color:var(--imu-green)}
+.imu-instruction {margin:.92rem 0 .47rem;line-height:1.35}
+.imu-instruction>strong,.imu-instruction>span {display:block}
+.imu-instruction>strong {font-size:1.02rem}
+.imu-instruction>span {color:#bad0d4;font-size:.84rem;margin-top:.2rem}
+.imu-studio:is([data-phase=error],[data-phase=stopped]) .imu-instruction>strong {color:var(--imu-amber)}
+.imu-studio:is([data-phase=complete],[data-phase=saved]) .imu-instruction>strong {color:var(--imu-green)}
+.imu-progress {display:flex;align-items:center;gap:.6rem;color:var(--imu-soft);font-size:.75rem;font-variant-numeric:tabular-nums}
+.imu-progress>span {min-width:3ch;text-align:right}
+.imu-studio .imu-progress progress {appearance:none;border:0;overflow:hidden;border-radius:4px;background:#0e202a;height:.33rem;flex:1}
+.imu-progress progress::-webkit-progress-bar {background:#0e202a;border-radius:4px}
+.imu-progress progress::-webkit-progress-value {background:#7cdcc6;border-radius:4px;transition:width .16s ease-out}
+.imu-progress progress::-moz-progress-bar {background:#7cdcc6;border-radius:4px}
+.imu-actions {display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;margin:.6rem 0 0}
+.imu-actions .cfg-btn {margin:0;min-height:2.1rem}
+.imu-readings {margin:.85rem 0 0}
+.imu-readings .imu-heading {margin-bottom:.5rem}
+.imu-table {overflow-x:auto}
+.imu-table table {width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}
+.imu-table th,.imu-table td {padding:.5rem .4rem;text-align:right;line-height:1.23}
+.imu-table th:first-child,.imu-table td:first-child {width:9%;padding-left:.08rem;text-align:left}
+.imu-table thead th {font-weight:500;color:var(--imu-soft);font-size:.78rem;border-bottom:1px solid #405460}
+.imu-table thead small {font:inherit;white-space:nowrap}
+.imu-table tbody :is(th,td) {font-size:.9rem;border-bottom:1px solid #324651}
+.imu-table tbody tr:last-child :is(th,td) {border-bottom:0}
+.imu-table td:nth-child(3) {color:#a9e2d8}
+.imu-axis {display:inline-block;width:.4rem;height:.4rem;border-radius:50%;margin-right:.45rem;vertical-align:middle}
+.imu-axis.axis-0 {background:#81d7c4}.imu-axis.axis-1 {background:#ffc279}.imu-axis.axis-2 {background:#a6b4ef}
+.imu-quality {display:flex;align-items:center;gap:.6rem 1.3rem;flex-wrap:wrap;border-top:1px solid var(--imu-edge);margin-top:.4rem;padding-top:.72rem;font-size:.81rem;color:var(--imu-soft)}
+.imu-quality b {color:#daedeb;margin-left:.35rem;font-variant-numeric:tabular-nums}
+@container (max-width: 780px) {
+  .imu-grid {grid-template-columns:minmax(0,1fr)}
+  .imu-views {height:180px;min-height:0;flex:auto}
+  .imu-faces {grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@container (max-width: 480px) {
+  .imu-card {padding:.75rem}
+  .imu-views {height:160px;grid-template-columns:1fr 1fr}
+  .imu-faces {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .imu-table th,.imu-table td {padding:.43rem .12rem}
+  .imu-table thead th {font-size:.71rem}
+  .imu-table tbody :is(th,td) {font-size:.76rem}
+  .imu-axis {display:none}
+}
+.imu-studio .imu-gyro-note {color:var(--imu-soft);margin:.55rem 0 0;font-size:.78rem;line-height:1.45}

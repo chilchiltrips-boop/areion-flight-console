@@ -109,7 +109,7 @@ class WizardV3Tests(unittest.TestCase):
         self.assertFalse(any(p.get('command')=='ARM' for _,p in self.requests))
 
     def test_checkboxes_and_old_local_results_do_not_replace_fc_proof(self):
-        self.ready();self.w.orientation_check.setChecked(True)
+        self.ready();self.assertFalse(self.w.sensor_save.isEnabled())
         self.w.motor_verified_check.setChecked(True);self.w.save_ack.setChecked(True);self.w._show_step(8)
         self.assertFalse(self.w.next_button.isEnabled());self.w._finalize();self.assertEqual(self.requests,[])
         self.assertFalse(self.w.diagnostic_snapshot()['wizard_complete'])

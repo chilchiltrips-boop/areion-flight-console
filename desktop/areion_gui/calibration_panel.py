@@ -18,7 +18,7 @@ from .model import equal_values
 from .scroll_guard import page_action_button as button
 from .sensor_calibration import (
     MAX_AGE_S, MIN_DURATION_S, MIN_SAMPLES, POSES, POSE_BY_KEY,
-    SixFaceCalibration, GyroCalibration, corrected_acc_preview, corrected_gyro_preview,
+    AutomaticSixFaceCalibration, GyroCalibration, corrected_acc_preview, corrected_gyro_preview,
 )
 from .widgets import label
 
@@ -49,6 +49,8 @@ class CaptureStatus(QLabel):
         self.pulse.valueChanged.connect(lambda _: self.update())
 
     def show_status(self, state, text):
+        if state == self.state and text == self.text():
+            return
         if state != self.state and self.isVisible():
             self.pulse.stop()
             self.pulse.start()
@@ -87,6 +89,7 @@ class CalibrationPanel(QWidget):
         self.now = 0.
         self.demo = self.safe = False
         self.bank = self.gyro = self.gyro_preview = None
+        self.saved_measurement = None
         self.pose_key = 'level'
         self.attitude = AttitudeModel()
         self.live_angles = None
@@ -98,6 +101,11 @@ class CalibrationPanel(QWidget):
             QFrame#imuStage {background:#122b36; border:1px solid #34515d; border-radius:8px;}
             QLabel#imuLegend {color:#b9d8dd; font-size:11px; font-weight:700;}
             QLabel#imuReading {color:#ecf6f4; font-size:13px; font-weight:600;}
+            QLabel#posePrompt {color:#eff8f6; font-size:19px; font-weight:700;}
+            QLabel#poseTile {color:#aec3ce; background:#1b303d; border:1px solid #354c57;
+                             border-radius:5px; padding:5px 7px; font-size:12px;}
+            QLabel#poseTile[mark="detected"] {color:#cdedff; background:#214554; border-color:#59adcc;}
+            QLabel#poseTile[mark="done"] {color:#bff4df; background:#193f39; border-color:#3a7567;}
             QLabel#captureStatus {color:#dce8ea; font-size:12px;}
             QProgressBar#captureMeter {background:#253d49; border:0; border-radius:3px; min-height:6px; max-height:6px;}
             QProgressBar#captureMeter::chunk {background:#57c9ac; border-radius:3px;}
@@ -109,15 +117,11 @@ class CalibrationPanel(QWidget):
         scene_row.setSpacing(8)
         self.pose_art, self.pose_title = self._scene(scene_row, 'Target position')
         self.live_scene, self.live_status = self._scene(scene_row, 'Live IMU')
-        self.columns.addLayout(scene_row, 53)
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
-        self.columns.addLayout(layout, 47)
-
-        self.stationary = QCheckBox('Board is stationary in the shown position.')
-        self.stationary.toggled.connect(self._confirmation_changed)
-        layout.addWidget(self.stationary)
+        self.columns.addLayout(layout, 56)
+        self.columns.addLayout(scene_row, 44)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._acc_tab(), 'Accelerometer')
         self.tabs.addTab(self._gyro_tab(), 'Gyroscope')
@@ -125,7 +129,7 @@ class CalibrationPanel(QWidget):
         self.tabs.currentChanged.connect(self._tab_changed)
         layout.addWidget(self.tabs)
         self.loading = False
-        self.select_pose('level')
+        self._set_target('level')
         if self.config.get('result'):
             self.acc_status.show_status('idle', 'Saved ACC estimate (historical).')
         if self.config.get('gyro_result'):
@@ -166,33 +170,37 @@ class CalibrationPanel(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(4)
-        self.target_label = note('')
-        layout.addWidget(self.target_label)
+        heading = QHBoxLayout()
+        self.target_label = note('Calibrate six positions', 'posePrompt')
+        heading.addWidget(self.target_label, 1)
+        self.face_count = label('0 / 6', 'imuReading')
+        heading.addWidget(self.face_count)
+        layout.addLayout(heading)
+        self.acc_status = CaptureStatus('Start once. Turn the kit onto each side and hold still.')
+        layout.addWidget(self.acc_status)
+        self.acc_progress = self._meter('Stable samples for this position')
+        layout.addWidget(self.acc_progress)
         grid = QGridLayout()
         grid.setSpacing(4)
-        self.pose_buttons = {}
+        self.pose_tiles = {}
         for i, pose in enumerate(POSES):
             key = pose['key']
-            choice = button(pose['title'], lambda checked=False, value=key: self.select_pose(value))
-            choice.setCheckable(True)
-            choice.setAccessibleName(f'Capture position {i+1}: {pose["title"]}')
-            self.pose_buttons[key] = choice
-            grid.addWidget(choice, i // 3, i % 3)
-        grid.setColumnStretch(3, 1)
+            tile = label(pose['title'], 'poseTile')
+            self.pose_tiles[key] = tile
+            grid.addWidget(tile, i // 3, i % 3)
         layout.addLayout(grid)
         actions = QHBoxLayout()
-        self.capture_button = button('Capture position', self.start_pose, 'primary')
-        self.reset_button = button('Reset captures', self.reset_acc)
+        self.capture_button = button('Start calibration', self.start_calibration, 'primary')
+        self.reset_button = button('Cancel', self.reset_acc)
         actions.addWidget(self.capture_button)
         actions.addWidget(self.reset_button)
         actions.addStretch()
-        self.face_count = label('0 / 6', 'imuReading')
-        actions.addWidget(self.face_count)
         layout.addLayout(actions)
-        self.acc_progress = self._meter('Current accelerometer capture')
-        layout.addWidget(self.acc_progress)
-        self.acc_status = CaptureStatus('Hold each position still for 3 seconds.')
-        layout.addWidget(self.acc_status)
+        self.stored_state = note('', 'imuLegend')
+        layout.addWidget(self.stored_state)
+        self.result_summary = note('', 'imuReading')
+        self.result_summary.hide()
+        layout.addWidget(self.result_summary)
         layout.addStretch()
         return page
 
@@ -201,6 +209,9 @@ class CalibrationPanel(QWidget):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(10, 7, 10, 7)
         layout.setSpacing(4)
+        self.stationary = QCheckBox('Kit is resting on a stable surface.')
+        self.stationary.toggled.connect(self._confirmation_changed)
+        layout.addWidget(self.stationary)
         grid = QGridLayout()
         self.gyro_live, self.gyro_corrected = [], []
         for col, title in enumerate(('Axis', 'FC rate (°/s)', 'After Python zero (°/s)')):
@@ -305,13 +316,23 @@ class CalibrationPanel(QWidget):
             self.update_telemetry(self.values, self.stamp, now, self.identity, self.demo, self.safe)
 
     @property
-    def active(self):return bool((self.bank and self.bank.current) or self.gyro)
+    def active(self):
+        return bool((self.bank and self.bank.running) or self.gyro)
+
+    @property
+    def has_current_result(self):
+        result = self.bank.result if self.bank else None
+        return bool(result and self.saved_measurement is None and result['gyro_residual_ok'] and self._valid()
+                    and self.identity is not None and self.config['result'] == result
+                    and equal_values(self.config['offsets'], result['candidate_offsets'])
+                    and 6 in self.values and equal_values(self.values[6], self.bank.baseline))
 
     def snapshot(self):
         return deepcopy(self.config)
 
     def _edited(self, axis, value):
         if self.loading:return
+        self.saved_measurement=None
         # The editors show four decimals. Keep the other axes at full FC precision.
         self.config['offsets'][axis] = value
         self.config.update(offsets_origin='manual', result=None)
@@ -319,40 +340,54 @@ class CalibrationPanel(QWidget):
         self._buttons();self._readings();self.changed.emit()
 
     def set_offsets(self,values,origin='fc_readback'):
-        self.bank=None;self.loading=True
+        self.saved_measurement=None;self.bank=None;self.loading=True
         for e,v in zip(self.offsets,values):e.setValue(v)
         self.loading=False;self.config.update(offsets=list(values),offsets_origin=origin,result=None)
         self.acc_progress.setValue(0);self.acc_status.show_status('idle', 'Kit offsets loaded.')
         self._buttons();self._readings();self.changed.emit()
 
-    def select_pose(self,key):
-        if self.active:return
+    def _set_target(self,key):
         self.pose_key = key
-        pose = POSE_BY_KEY[key]
         self._guide()
-        axis = 'XYZ'[pose['axis']]
-        self.target_label.setText(f'Place the kit {pose["title"].lower()} · {axis} {"+" if pose["sign"]>0 else "−"}1 g')
-        self._buttons()
 
     def _valid(self):
         return bool(self.safe and self._fresh(time.monotonic()) and self.values[120][0] is False)
 
     def _buttons(self):
-        ready=self._valid() and self.stationary.isChecked() and not self.active
-        faces=self.bank.faces if self.bank else {}
+        ready=self._valid() and self.identity is not None and not self.active
+        report = self.config.get('result') if self.saved_measurement else None
+        faces=self.bank.faces if self.bank else report.get('faces', {}) if report else {}
+        detected=self.bank.current_key if self.bank and self.bank.running else None
         self.face_count.setText(f'{len(faces)} / {len(POSES)}')
         self.face_count.setAccessibleName(f'{len(faces)} of {len(POSES)} positions captured')
         for pose in POSES:
-            b=self.pose_buttons[pose['key']];done=pose['key'] in faces
-            b.setText(('✓ ' if done else '')+pose['title']);b.setChecked(self.pose_key==pose['key']);b.setEnabled(not self.active)
-        self.capture_button.setText('Retry position' if self.acc_status.state == 'error' and self.pose_key not in faces else 'Capture position')
+            key=pose['key']; tile=self.pose_tiles[key]
+            mark='done' if key in faces else 'detected' if key==detected else 'pending'
+            if tile.property('mark') != mark:
+                icon, name = {'done':('✓', 'Captured'), 'detected':('●', 'Sampling'), 'pending':('○', 'Pending')}[mark]
+                tile.setProperty('mark',mark)
+                tile.setText(f'{icon}  {pose["title"]}')
+                tile.setAccessibleName(f'{pose["title"]} · {name}')
+                tile.style().unpolish(tile)
+                tile.style().polish(tile)
+        self.capture_button.setText('Capturing…' if self.bank and self.bank.running else
+                                    'Restart calibration' if self.bank and self.bank.error else 'Start calibration')
         self.gyro_button.setText('Retry gyro zero' if self.gyro_status.state == 'error' else 'Capture gyro zero')
-        self.capture_button.setEnabled(ready and 6 in self.values and self.pose_key not in faces)
+        self.capture_button.setEnabled(ready and 6 in self.values and not (self.bank and self.bank.result))
+        self.reset_button.setText('Cancel' if self.bank and self.bank.running else 'Clear result')
+        self.reset_button.setEnabled(self.bank is not None and self.gyro is None)
         for index in range(self.tabs.count()):
             self.tabs.setTabEnabled(index, not self.active or index == self.tabs.currentIndex())
-        self.gyro_button.setEnabled(ready);self.reset_button.setEnabled(not self.active)
+        self.gyro_button.setEnabled(ready and self.stationary.isChecked())
         self.gyro_clear.setEnabled(not self.active);self._read_button_state()
         for e in self.offsets:e.setEnabled(not self.active)
+        if self.bank is None and self.saved_measurement is None:
+            if self.pose_key != 'level':
+                self._set_target('level')
+            self.target_label.setText('Calibrate six positions')
+            self.result_summary.hide()
+        elif self.saved_measurement:
+            self.target_label.setText('Calibration saved')
 
     def set_read_available(self,available):
         # Reading offsets is independent of permission to capture/calibrate.
@@ -367,22 +402,31 @@ class CalibrationPanel(QWidget):
         if self.read_button.isEnabled()!=enabled:self.read_button.setEnabled(enabled)
 
     def _confirmation_changed(self,*args):
-        if not self.stationary.isChecked() and self.active:self.suspend('stationary confirmation withdrawn')
+        if not self.stationary.isChecked() and self.gyro:self.suspend('stationary confirmation withdrawn')
         self._buttons()
 
-    def start_pose(self):
+    def start_calibration(self):
         if not self.capture_button.isEnabled():return
-        baseline=self.values.get(6)
-        if self.bank is None:self.bank=SixFaceCalibration(baseline,self.demo)
-        if not equal_values(baseline,self.bank.baseline):self.reset_acc();self.bank=SixFaceCalibration(baseline,self.demo)
+        self.saved_measurement=None
+        try:
+            self.bank=AutomaticSixFaceCalibration(self.values[6],self.demo,started=time.monotonic())
+        except (ValueError, TypeError):
+            self.acc_status.show_status('error','Read valid offsets from the kit before starting.')
+            return
         self.config['result']=None
-        self.bank.start_pose(self.pose_key,time.monotonic());self.acc_progress.setValue(0)
-        self.acc_status.show_status('capture', f'Capturing {POSE_BY_KEY[self.pose_key]["title"]}… keep still.')
+        self._set_target('level')
+        self.acc_progress.setValue(0)
+        self.result_summary.hide()
+        self.target_label.setText('Place the kit flat')
+        self.acc_status.show_status('capture','Turn to any unfinished position and hold still.')
         self._buttons();self.changed.emit()
 
     def reset_acc(self):
+        cancelled=bool(self.bank and self.bank.running)
+        self.saved_measurement=None
         self.bank=None;self.config['result']=None;self.acc_progress.setValue(0)
-        self.acc_status.show_status('idle', '0 / 6 positions captured.');self.select_pose('level');self.changed.emit()
+        self.acc_status.show_status('idle', 'Capture cancelled.' if cancelled else 'Ready to start a new calibration.')
+        self._set_target('level');self._buttons();self.changed.emit()
 
     def start_gyro(self):
         if not self.gyro_button.isEnabled():return
@@ -396,8 +440,8 @@ class CalibrationPanel(QWidget):
         self._readings();self._buttons();self.changed.emit()
 
     def suspend(self,reason):
-        if self.bank and self.bank.current:
-            self.bank.cancel_capture(reason)
+        if self.bank and self.saved_measurement is None:
+            self.bank=None
             self.acc_progress.setValue(0)
             self.acc_status.show_status('error', 'Capture cancelled · '+reason)
         if self.gyro:
@@ -408,15 +452,20 @@ class CalibrationPanel(QWidget):
 
     def new_visit(self):
         self.suspend('new setup visit');self.bank=None;self.gyro_preview=None;self.stationary.setChecked(False)
+        self.saved_measurement=None
         self.acc_progress.setValue(0);self.gyro_progress.setValue(0)
         self.acc_status.show_status('idle', 'Saved estimate (historical). Capture again.' if self.config.get('result') else '0 / 6 positions captured.')
         self.gyro_status.show_status('idle', 'Capture gyro zero for this session.')
-        self.select_pose('level')
+        self._set_target('level')
+        self._buttons()
 
     def update_telemetry(self,values,stamp,now,identity,demo,safe):
         changed_identity=self.identity is not None and identity!=self.identity
         self.values=values;self.stamp=stamp;self.now=now;self.identity=identity;self.demo=demo;self.safe=safe
         status=values.get(120);imu=values.get(21)
+        setup_state=values.get(130)
+        verified=bool(isinstance(setup_state,(list,tuple)) and len(setup_state)>5 and setup_state[5])
+        self.stored_state.setText('Kit sensor check verified' if verified and self._fresh(now) else '')
         setup = values.get(134)
         if isinstance(setup, (list, tuple)) and len(setup) == 11:
             profile = 'areion250' if setup[0] == 1 else 'areion450'
@@ -428,39 +477,27 @@ class CalibrationPanel(QWidget):
         else:
             self.expiry.stop()
         continuous = bool(safe and fresh and status[0] is False)
-        changed_baseline=bool(self.bank and (6 not in values or not equal_values(values[6],self.bank.baseline)))
+        saved_matches=bool(self.saved_measurement and self.saved_measurement[0] == identity
+                           and verified and fresh and 6 in values
+                           and equal_values(values[6], self.saved_measurement[1]))
+        if not saved_matches:
+            self.saved_measurement=None
+        changed_baseline=bool(self.bank and not saved_matches and
+                              (6 not in values or not equal_values(values[6],self.bank.baseline)))
         if changed_identity or changed_baseline or not continuous:
-            if self.bank and (self.bank.faces or self.bank.current):
+            if self.bank:
                 self.bank=None;self.acc_progress.setValue(0)
-                self.acc_status.show_status('error', 'Capture reset · connection or sensor state changed.')
+                if not saved_matches:
+                    self.acc_status.show_status('error', 'Capture reset · connection, offsets or sensor state changed.')
+                self.changed.emit()
             if self.gyro:
                 self.gyro=None;self.gyro_progress.setValue(0)
                 self.gyro_status.show_status('error', 'Gyro capture stopped · check connection and hold still to retry.')
             if self.gyro_preview:self.gyro_status.show_status('idle', 'Previous gyro zero is historical. Capture again.')
             self.gyro_preview=None
-        elif self.bank and self.bank.current:
-            state=self.bank.add(imu,stamp,now,self.stationary.isChecked())
-            if self.bank.current:
-                self._capture_progress(self.bank.current, self.acc_progress, self.acc_status, POSE_BY_KEY[self.pose_key]['title'])
-            if state=='error':
-                error = self.bank.error
-                if len(self.bank.faces) == len(POSES):
-                    error += ' Choose Reset captures to start again.'
-                self.acc_status.show_status('error', error)
-                self.acc_progress.setValue(0)
-            elif state in ('captured','complete'):
-                self.acc_progress.setValue(100);count=len(self.bank.faces)
-                self.acc_status.show_status('done', f'{count} / 6 positions captured · {POSE_BY_KEY[self.pose_key]["title"]} complete.')
-                if state=='complete':
-                    result=deepcopy(self.bank.result);self.config['result']=result;self.config['offsets_origin']=result['kind']
-                    self.config['offsets'] = list(result['candidate_offsets'])
-                    self.loading=True
-                    for e,v in zip(self.offsets,result['candidate_offsets']):e.setValue(v)
-                    self.loading=False
-                    scale_note=' Scale needs correction; FC stores offsets only.' if result['scale_required'] else ''
-                    self.acc_status.show_status('done', ('DEMO · ' if self.demo else '')+'6 / 6 complete · offsets ready to save.'+scale_note)
-                else:self.select_pose(next(p['key'] for p in POSES if p['key'] not in self.bank.faces))
-                self.changed.emit()
+        elif self.bank and self.bank.running:
+            state = self.bank.add(imu, stamp, now, continuous)
+            self._show_automatic_capture(state)
         elif self.gyro:
             self.gyro.add(imu,stamp,now,self.stationary.isChecked())
             self._capture_progress(self.gyro, self.gyro_progress, self.gyro_status, 'Gyro zero')
@@ -473,6 +510,56 @@ class CalibrationPanel(QWidget):
                 self.gyro_status.show_status('done', ('DEMO · ' if self.demo else '')+'Gyro zero captured · Python preview only.')
                 self.changed.emit()
         self._readings();self._buttons()
+
+    def _show_automatic_capture(self, state):
+        bank = self.bank
+        target = bank.current_key or bank.suggested_key
+        if target and target != self.pose_key:
+            self._set_target(target)
+        if state == 'complete':
+            result = deepcopy(bank.result)
+            self.config.update(result=result, offsets_origin=result['kind'],
+                               offsets=list(result['candidate_offsets']))
+            self.loading = True
+            try:
+                for editor, offset in zip(self.offsets, result['candidate_offsets']):
+                    editor.setValue(offset)
+            finally:
+                self.loading = False
+            self.target_label.setText('Ready to save')
+            self.acc_progress.setValue(100)
+            self.acc_status.show_status('done', ('DEMO · ' if self.demo else '') +
+                                        '6 / 6 positions captured · stationary gyro check passed.')
+            offsets = '   '.join(f'{axis} {offset:+.4f}' for axis, offset in zip('XYZ', result['candidate_offsets']))
+            self.result_summary.setText(f'{offsets}  g\nMaximum corrected error  {result["max_additive_residual_g"]:.3f} g')
+            self.result_summary.show()
+            self.changed.emit()
+        elif state == 'error':
+            self.target_label.setText('Calibration interrupted')
+            self.acc_progress.setValue(0)
+            self.acc_status.show_status('error', bank.error)
+            self.changed.emit()
+        elif bank.current:
+            name = POSE_BY_KEY[bank.current_key]['title']
+            self.target_label.setText('Hold still · ' + name)
+            self._capture_progress(bank.current, self.acc_progress, self.acc_status, name)
+        else:
+            self.target_label.setText('Next · ' + POSE_BY_KEY[target]['title'])
+            self.acc_progress.setValue(0)
+            if bank.last_captured and bank.detected_key == bank.last_captured:
+                self.acc_status.show_status('done', POSE_BY_KEY[bank.last_captured]['title'] +
+                                            ' captured. Turn to an unfinished position.')
+            else:
+                self.acc_status.show_status('capture', bank.hint)
+            if state == 'captured':
+                self.changed.emit()
+
+    def mark_saved(self):
+        self.saved_measurement=(self.identity, list(self.config['offsets']))
+        self.acc_progress.setValue(100)
+        self.acc_status.show_status('done', 'Accelerometer offsets saved and verified on the kit.')
+        self.target_label.setText('Calibration saved')
+        self._buttons()
 
     @staticmethod
     def _capture_progress(capture, meter, status, title):

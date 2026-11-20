@@ -150,7 +150,7 @@ class WizardResetScrollTests(unittest.TestCase):
         scroll=self.w.scrolls[3];bar=scroll.verticalScrollBar()
         # Scrolling during capture remains usable and is not overwritten by ticks.
         chosen=min(80,bar.maximum());bar.setValue(chosen)
-        started=panel.bank.current.started
+        started=panel.bank.started
         for index in range(35):
             now=started+.1*(index+1)
             with patch('time.monotonic',return_value=now):

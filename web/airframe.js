@@ -33,9 +33,9 @@ function rotate([x,y,z], roll, pitch, yaw) {
   return [c*x - s*y, s*x + c*y, z];
 }
 
-export function airframe(canvas, profile='areion450', orientation=[0,0,0]) {
+export function airframe(canvas, profile='areion450', orientation=[0,0,0], fitGuide=false) {
   const key = profile === 'areion250' ? profile : 'areion450';
-  const sig = [key, ...orientation.map(v=>Math.round(v*2)/2), canvas.clientWidth, canvas.clientHeight].join('/');
+  const sig = [key, fitGuide, ...orientation.map(v=>Math.round(v*2)/2), canvas.clientWidth, canvas.clientHeight].join('/');
   if (canvas.dataset.pose === sig) return;
   canvas.dataset.pose = sig;
   if (!models.has(key)) models.set(key, geometry(key).catch(error=>{models.delete(key); throw error;}));
@@ -43,15 +43,25 @@ export function airframe(canvas, profile='areion450', orientation=[0,0,0]) {
     if (!canvas.isConnected || canvas.dataset.pose !== sig) return;
     const ctx = canvas.getContext('2d');
     const w = canvas.clientWidth || 300, h = canvas.clientHeight || 165;
-    const scale = Math.min(w*.35, h*.49), pixel = Math.min(2, window.devicePixelRatio || 1);
+    const pixel = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(w*pixel); canvas.height = Math.round(h*pixel);
     ctx.scale(pixel,pixel);
     const az = degrees(28), el = degrees(32);
-    const vertices = mesh.verts.map(v=>{
+    const projected = mesh.verts.map(v=>{
       const [x,y,z] = rotate(v,...orientation);
       const d = y*Math.cos(az) - x*Math.sin(az);
-      return [w/2 + (x*Math.cos(az)+y*Math.sin(az))*scale, h*.55 - (d*Math.sin(el)+z*Math.cos(el))*scale, d*Math.cos(el)-z*Math.sin(el)];
+      return [x*Math.cos(az)+y*Math.sin(az), -(d*Math.sin(el)+z*Math.cos(el)), d*Math.cos(el)-z*Math.sin(el)];
     });
+    let scale = Math.min(w*.35, h*.49), centerX = w/2, centerY = h*.55;
+    if (fitGuide) {
+      // Leave room for the position labels even when the aircraft stands on an edge.
+      const xs = projected.map(v=>v[0]), ys = projected.map(v=>v[1]);
+      const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
+      scale = Math.min(scale, w*.89/(right-left), h*.68/(bottom-top));
+      centerX = w/2 - (right+left)*scale/2;
+      centerY = h/2 - (top+bottom)*scale/2;
+    }
+    const vertices = projected.map(([x,y,z])=>[centerX+x*scale,centerY+y*scale,z]);
     const drawn = mesh.faces.map(f=>{
       const p = f.indices.map(i=>vertices[i]);
       return {p,depth:p.reduce((s,v)=>s+v[2],0)/p.length, rgb:f.color};

@@ -21,7 +21,6 @@ export const extras={
   reset:()=>checked('reset','Erase all kit settings and restore defaults.')+act('reset','Reset all kit settings'),
   source:()=>field('Flight input',editor(134,1,'Flight input',choices.source))+act('source','Save input'),
   profile:()=>act('profile','Save aircraft profile'),
-  imu:()=>checked('imu','Level and roll/pitch movement match the board orientation.')+act('imu','Save offsets & confirm sensor'),
   mapping:()=>['Roll','Pitch','Throttle','Yaw'].map((t,i)=>ch(134,i+2,t)).join('')+num(134,6,'Stick deadband (µs)'),
   receiver:()=>checked('receiver','Channel directions verified, throttle low and sticks centered.')+act('receiver','Save receiver calibration'),
   reverse:i=>'<input type="checkbox" data-field="132:'+(i*4+3)+'" aria-label="Reverse CH'+(i+1)+'">',
@@ -160,7 +159,9 @@ export class ConfigPanel {
     if(!this.lock)return false;
     switch(key){
       case 'reset':return check('reset');
-      case 'imu':return check('imu')&&this.fresh(21)&&this.fresh(120)?.[2]&&!a.sensor.active;
+      case 'start-sensor':return this.local.sensorVisible() && !this.local.calibration.sensor.active &&
+        !this.local.calibration.gate(this.ctx,this.local.sensorControls());
+      case 'imu':return this.local.sensorVisible() && this.local.calibration.ready(this.ctx,this.local.sensorControls());
       case 'receiver':return check('receiver')&&!a.rxRun&&cfg?.[1]===0&&(a.endpoints||s[6])&&this.fresh(131)?.[9];
       case 'schedule':case 'skip':return s[5]&&(cfg?.[1]!==0||s[6])&&![1,2].includes(s[3])&&check(key==='schedule'?'compatible':'skip');
       case 'verify-esc':return s[3]===3&&check('tones')&&this.fresh(21)&&this.fresh(120)?.[2];
@@ -235,10 +236,16 @@ export class ConfigPanel {
         }
         return 'Aircraft profile verified.';
       }
+      case 'start-sensor':{
+        const setup=await op.sensorState();
+        const base=await op.read(6),reason=this.local.calibration.gate(this.ctx,this.local.sensorControls());
+        if(reason||!this.local.sensorVisible())throw Error(reason||'Reopen the sensor calibration page.');
+        this.local.calibration.start(this.ctx,base,setup[15],performance.now());
+        return 'Automatic capture started.';
+      }
       case 'imu':{
-        const base=await op.read(6),offsets=base.map((v,i)=>a.offsetDraft[i]??a.sensor.offsets?.[i]??v);
-        if(a.sensor.baseline&&!equal(base,a.sensor.baseline))throw Error('Kit offsets changed. Repeat the capture.');
-        await op.store(6,offsets,base);await op.checkedAction('SENSOR_OK',[1,0,0,0],s=>s[5]);return 'Offsets saved and sensor check verified.';
+        await this.local.calibration.save(op,this.ctx,this.local.sensorControls());
+        return 'Accelerometer offsets and sensor check saved and verified on the kit.';
       }
       case 'receiver':{
         const before=await op.read(134),indices=[2,3,4,5,6],cfg=this.snapshot(134,before,indices),map=cfg.slice(2,6),f=await op.read(7);

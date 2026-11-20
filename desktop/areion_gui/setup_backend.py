@@ -1,4 +1,6 @@
 """Explicit, verified setup actions; only firmware FINALIZE can release ARM lock."""
+import time
+
 from .backend import read_section, save_input
 from .model import validate_values, equal_values
 from .setup_changes import SETTINGS_GROUPS as SETUP_SETTINGS
@@ -32,6 +34,8 @@ def run_setup_action(link, action, payload, cancelled):
     def guard():
         if cancelled() or not link.connected:
             raise RuntimeError('Setup action cancelled or connection lost. ARM remains locked until a verified final save.')
+        if action == 'save_calibration' and payload.get('identity') != (id(link), link.fc_session):
+            raise RuntimeError('Kit session changed. Repeat calibration on the connected kit.')
 
     def read(group, saved=False):
         guard()
@@ -119,6 +123,8 @@ def run_setup_action(link, action, payload, cancelled):
         if name in ('BEGIN', 'FINALIZE'):
             raise ValueError('Use the guarded begin/finalize operation.')
         ack, status = command(name, payload.get('args'))
+        if name == 'SENSOR_OK' and (ack != ['SETUP_UPDATED'] or not status[5] or not status[0] or status[1]):
+            raise RuntimeError('Sensor verification was not confirmed by the kit.')
         return {'action': action, 'command': name, 'ack': ack,
                 'values': {130: status}, 'complete': True}
 
@@ -128,7 +134,7 @@ def run_setup_action(link, action, payload, cancelled):
         return result
 
     # Keep the historical alias for SDK callers, but use the same 3.0 guards.
-    if action not in ('apply_save', 'save_supported', 'finalize'):
+    if action not in ('apply_save', 'save_supported', 'finalize', 'save_calibration'):
         raise UnsupportedSetupFeature('Unsupported setup action.')
     requested = payload.get('groups', {})
     if not isinstance(requested, dict) or (not requested and action != 'finalize') or any(group not in SETUP_SETTINGS for group in requested):
@@ -137,12 +143,18 @@ def run_setup_action(link, action, payload, cancelled):
         raise ValueError('Demo-derived ACC offsets cannot be applied to real hardware.')
     for group, values in requested.items():
         validate_values(group, values)
+    if action == 'save_calibration':
+        if set(requested) != {6}:
+            raise ValueError('Calibration can save only accelerometer offsets.')
+        baseline = validate_values(6, payload.get('baseline'))
     guard()
     if not require_disarmed()[7]:
         raise RuntimeError('FC storage unavailable; setup cannot be finalized.')
     status = read(130)
     if not status[0] or status[1]:
         raise RuntimeError('Enter setup and confirm the firmware ARM lock before saving setup sections.')
+    if action == 'save_calibration' and (status[8] or status[3] in (1, 2)):
+        raise RuntimeError('Stop motor testing and finish ESC calibration before saving the IMU.')
     result = {'action': action, 'sections': {}, 'values': {130: status},
               'complete': False, 'demo': bool(getattr(link, 'demo', False))}
     # Input/profile and calibration precede flight settings, so cross-validation
@@ -155,6 +167,8 @@ def run_setup_action(link, action, payload, cancelled):
             guard()
             require_disarmed()
             before = read(group)
+            if action == 'save_calibration' and not equal_values(before, baseline):
+                raise RuntimeError('Offsets changed during calibration. Read them and repeat the capture.')
             result['sections'][group] = {'before': before, 'requested': list(values), 'state': 'read'}
             if not equal_values(before, values):
                 guard()
@@ -195,6 +209,22 @@ def run_setup_action(link, action, payload, cancelled):
             except Exception:
                 pass
             return result
+    if action == 'save_calibration':
+        # Setting offsets invalidates the FC IMU flag until the next acquisition.
+        deadline = time.monotonic() + 1.5
+        while True:
+            state = require_disarmed()
+            if state[2] and state[5] > 0:
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Offsets stored. IMU has not resumed. Read the kit before retrying.')
+            time.sleep(.04)
+        ack, setup = command('SENSOR_OK', [1, 0, 0, 0])
+        if ack != ['SETUP_UPDATED'] or not setup[0] or setup[1] or not setup[5] or setup[8] or setup[3] in (1, 2):
+            raise RuntimeError('Offsets stored. The kit did not confirm sensor verification.')
+        result.update(ack=ack, complete=True)
+        result['values'][130] = setup
+        return result
     if 134 in requested:
         result['values'][110] = read(110)
     if action == 'finalize':

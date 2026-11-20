@@ -5,7 +5,7 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 from fc_fixture import DemoLink
-from areion_gui.backend import open_link
+from areion_gui.backend import open_link, read_section
 from areion_gui.setup_backend import run_setup_action, SETUP_SETTINGS
 from areion_gui.model import NEUTRAL
 
@@ -82,6 +82,38 @@ class SetupLifecycleTests(unittest.TestCase):
         self.assertTrue(result['values'][130][0])
         self.assertFalse(result['values'][130][1])
         with self.assertRaises(ValueError): self.run_action('finalize')
+
+    def calibration_request(self):
+        offsets = read_section(self.link, 6)
+        target = list(offsets)
+        target[0] += .02
+        return {'identity': (id(self.link), self.link.fc_session),
+                'groups': {6: target}, 'baseline': offsets}
+
+    def test_sensor_save_rechecks_baseline_and_session_before_flash(self):
+        self.run_action('begin')
+        request = self.calibration_request()
+        request['baseline'][1] += .01
+        with patch.object(self.link, 'save_group') as save:
+            result = self.run_action('save_calibration', request)
+            self.assertFalse(result['complete'])
+            self.assertIn('Offsets changed', result['error'])
+            self.assertFalse(self.link.read_group(130)[5])
+            request['identity'] = (id(self.link), 'earlier boot')
+            with self.assertRaisesRegex(RuntimeError, 'session changed'):
+                self.run_action('save_calibration', request)
+            save.assert_not_called()
+
+    def test_sensor_save_requires_exact_ack_and_verified_kit_readback(self):
+        self.run_action('begin')
+        for ack in (['UNEXPECTED'], ['SETUP_UPDATED']):
+            with self.subTest(ack=ack):
+                request = self.calibration_request()
+                with patch.object(self.link, 'action', return_value=ack):
+                    with self.assertRaisesRegex(RuntimeError, 'did not confirm'):
+                        self.run_action('save_calibration', request)
+                self.assertEqual(read_section(self.link, 6), request['groups'][6])
+                self.assertFalse(self.link.read_group(130)[5])
 
     def test_final_save_unlocks_but_never_arms(self):
         result = self.complete(digital=True)

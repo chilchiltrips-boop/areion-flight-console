@@ -32,8 +32,7 @@ class ImuVisualTests(unittest.TestCase):
         self.panel.update_telemetry(values, self.now if stamp is None else stamp, self.now, 1, False, safe)
 
     def test_guide_is_independent_of_measured_3d_pose_including_inverted(self):
-        self.panel.select_pose('nose_down')
-        self.assertEqual(self.panel.pose_title.text(), 'Nose down')
+        self.assertEqual(self.panel.pose_title.text(), 'Flat / level')
         self.assertIsNone(self.panel.live_angles)
         self.sample(acc=(0., 0., -1.))
         self.assertAlmostEqual(abs(self.panel.live_angles[0]), 180.)
@@ -41,7 +40,7 @@ class ImuVisualTests(unittest.TestCase):
         self.sample(acc=(-1., 0., 0.))
         self.assertAlmostEqual(self.panel.live_angles[1], 90.)
         self.assertIn('R —', self.panel.live_status.text())
-        self.assertEqual(self.panel.pose_key, 'nose_down')
+        self.assertEqual(self.panel.pose_key, 'level')
 
     def test_live_gyro_uses_filtered_roll_pitch_and_relative_yaw(self):
         self.panel.tabs.setCurrentIndex(1)
@@ -57,16 +56,17 @@ class ImuVisualTests(unittest.TestCase):
         self.assertIsNone(self.panel.live_angles)
         self.assertEqual(self.panel.live_status.text(), 'Waiting for live IMU')
 
-    def test_capture_failure_retry_and_proven_sample_progress(self):
-        self.panel.stationary.setChecked(True)
+    def test_detected_pose_uses_fresh_samples_and_prompts_automatically(self):
         self.sample()
-        self.panel.start_pose()
+        self.panel.capture_button.click()
         self.now += .1
         self.sample(acc=(1., 0., 0.))
-        self.assertEqual(self.panel.acc_status.state, 'error')
-        self.assertIn('Wrong orientation', self.panel.acc_status.text())
-        self.assertEqual(self.panel.capture_button.text(), 'Retry position')
-        self.panel.start_pose()
+        self.assertEqual(self.panel.pose_title.text(), 'Nose down')
+        self.assertEqual(self.panel.pose_tiles['nose_down'].property('mark'), 'detected')
+        self.now += .1
+        self.sample(gyro=(30.,0.,0.))
+        self.assertTrue(self.panel.active)
+        self.assertFalse(self.panel.bank.faces)
         self.now += .1
         self.sample()
         stamp = self.now
@@ -80,3 +80,5 @@ class ImuVisualTests(unittest.TestCase):
         self.assertEqual(self.panel.acc_status.state, 'done')
         self.assertEqual(self.panel.face_count.text(), '1 / 6')
         self.assertEqual(self.panel.pose_key, 'nose_up')
+        self.assertEqual(self.panel.pose_tiles['level'].property('mark'), 'done')
+        self.assertTrue(self.panel.active)

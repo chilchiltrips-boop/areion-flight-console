@@ -12,6 +12,12 @@ The GitHub Pages application runs in the browser and talks directly to the Areio
 
 The header chooses the link to the kit. **Flight Data → Save input** independently selects PPM, AP or USB flight input. Switching input preserves the rest of the setup. Disarm the kit and stop its sender before changing input.
 
+## Calibrate the IMU
+
+Open [Configuration → IMU](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/imu) or **Setup wizard → Sensors**. With the propellers removed and the kit connected, confirm the arming lock and choose **Start calibration** once. Rest the kit in each of six positions in any order. The guide shows the measured orientation, how long it has been steady, and which positions are still needed. Leave it still until the position is marked captured. Movement restarts the current hold.
+
+After all six pass, choose **Save calibration to kit**. The console reads back both the active and stored accelerometer offsets and confirms the sensor check with the controller. The gyroscope’s stationary rates are checked during capture. The kit measures its own gyro bias at power-up.
+
 ## Console pages
 
 | Page | Controls and readings |

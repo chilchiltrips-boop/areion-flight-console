@@ -91,8 +91,8 @@ connection bar; persistent ARM locking and verified finishing are unchanged.
 
 ## Direct calibration pages
 
-**Configuration → IMU → Calibration** provides six-position ACC capture, manual
-offsets with corrected g, live attitude and gyro-zero preview outside Setup wizard.
+**Configuration → IMU → Calibration** provides automatic six-position accelerometer calibration,
+corrected acceleration, live attitude and a gyro-zero preview outside Setup wizard.
 The **Readings** tab retains the existing sensor telemetry and graphs.
 **Configuration → ESC / motors** provides endpoint scheduling, USB/AP reconnect,
 result confirmation and a **Motor verification** tab on one page.
@@ -102,9 +102,9 @@ result confirmation and a **Motor verification** tab on one page.
 2. Remove every propeller, tick the confirmation, then choose **Begin calibration**.
    The kit persistently locks flight arming and loads its current settings. Existing
    valid receiver, sensor, ESC and motor checks are retained.
-3. For IMU, capture the required positions or edit offsets, review level/direction,
-   and use **Save offsets & confirm sensor check**. Gyro zero is a Python preview;
-   repeat the existing FC gyro calibration by power-cycling the stationary kit.
+3. For IMU, choose **Start calibration** once. Hold the kit still on each of its six sides
+   in any order until the display marks it captured. After all six pass, choose
+   **Save calibration** to store and verify the accelerometer offsets.
 4. For ESCs, confirm actual PWM/endpoint compatibility and use **Save & calibrate
    on next startup**. Follow the documented complete power cycle below. Reconnect
    on this same page, wait for sensor recovery, then click **Resume calibration**.
@@ -153,7 +153,7 @@ The Live data table uses fixed initial column widths that can be resized manuall
 
 The wizard has nine steps for configuring the kit and an optional tenth step for checking it after a restart. It includes two original Quad X airframe models in `areion_gui/assets/airframes`. The 450 and 250 profiles use separate Wavefront OBJ files and a shared MTL palette. They render locally in Qt. The aircraft models show the airframe with its propellers removed. The wiring page uses the board's fixed 2D connection diagram.
 
-On **Sensors**, compare the target pose with the live aircraft and watch capture progress while holding each position still. A movement or orientation error identifies the position to retry. The six-position illustration uses the measured gravity direction at rest, including upside down. The gyroscope tab shows relative yaw. A gyro-zero capture applies to the Python display for the current session. **Save offsets** stores the supported ACC offsets on the kit.
+On **Sensors**, the target and measured aircraft appear side by side. The console recognizes each position automatically. Hold each side still until its tile shows completion. If the board moves, the current hold restarts. The result shows the corrected acceleration error across the six positions and the three proposed offsets. Choose **Save calibration** to confirm the active and stored values with the kit.
 
 On **PPM receiver**, the left stick shows throttle and yaw and the right stick shows pitch and roll. The sticks follow raw receiver pulses through the selected mapping, reversal and range settings. Sweep the assigned channels to learn their endpoints, then lower throttle and centre the other three axes for neutral capture. A lost receiver signal clears the live sticks.
 
@@ -166,7 +166,7 @@ The table describes checks that are pending. Review retained valid results witho
 | 1 | Safety & connect | Remove every propeller, connect through USB/AP and confirm the setup lock. Continue with the loaded kit settings, or explicitly reset all settings to defaults. |
 | 2 | Aircraft profile | Review the loaded aircraft profile. Choose and save a different illustrated profile only when needed; profile templates use the stable default PID. |
 | 3 | Input & wiring | Save PPM, AP or USB as the flight input. Only the source selection is saved by this action. Use the fixed 2D map for OUT1–OUT4, PPM and IMU wiring. |
-| 4 | Sensors | Capture ACC positions, review corrected g values and attitude direction, then save offsets and confirm the sensor check. Gyro zero is a Python preview. |
+| 4 | Sensors | Start automatic capture, hold each of six positions steady, review the result and save calibration. |
 | 5 | PPM receiver | For PPM only, capture full stick travel and neutral, map/reverse channels, then save and verify. AP/USB skip this check. |
 | 6 | ESC calibration | Explicitly schedule one calibration for the next startup, follow the ESC maker's procedure and confirm the result; or record that calibration is not required. |
 | 7 | Motor outputs | With props removed and the LiPo connected, test single/all motors, record starting/idle outputs and confirm motor order and rotation. |
@@ -249,7 +249,7 @@ after_offset_g = received_acc_g - active_fc_offset_g + draft_offset_g
 | Right side down | Y +1 g |
 | Upside down | Z −1 g |
 
-Each position needs fresh, distinct stationary samples and orientation checks. Motion, stale/invalid data, a changed FC session or changed active offsets invalidate the affected capture. Opposing positions estimate **additive offsets only**, limited to ±0.5 g. Scale factors and fit residuals are diagnostic; the FC does not apply scale/cross-axis calibration. The sensor page saves offsets explicitly and requires a separate level/orientation review.
+Each position requires at least three seconds and 20 distinct stationary samples. The console checks alignment, gyro drift and sample variation before accepting a face. The final fit checks the corrected acceleration on all six faces using only the additive offsets the FC can store (±0.5 g per axis). A new controller connection or a change to the active offset baseline requires a fresh run. Saving edited offsets separately clears any sensor verification affected by the edit.
 
 **Capture gyro zero** measures residual drift after the FC's existing boot calibration. Its subtraction changes the Python display only. There is no remote gyro-bias save, gyro recalibration or hardware reboot command. To repeat FC gyro calibration, power-cycle the kit and keep it still through startup. Neither Python gyro zero nor ACC scale is written to the FC. Previously saved captures are shown as history. New measurements require fresh readings from the connected kit.
 
@@ -379,7 +379,7 @@ Group7/schema3 contains six fields. On upgrade, valid previously saved schema2 m
 
 ## IMU calibration
 
-These controls appear on the standalone IMU Readings tab. For guided six-position ACC capture and the gyro-zero preview, open its Calibration tab or Setup wizard step 4.
+These controls appear on the standalone IMU Readings tab. For automatic six-position accelerometer calibration and the gyro-zero preview, open its Calibration tab or Setup wizard step 4.
 
 The IMU page displays AccX/Y/Z in g, RateRoll/Pitch/Yaw in degrees/second, raw AngleRoll/Pitch and Kalman roll/pitch in degrees. The attitude display uses Kalman angles. Four graph tabs show recent samples. Stale/invalid IMU readings blank the gauges; old table values remain labelled STALE or OFFLINE.
 
@@ -391,7 +391,7 @@ AccY = AccYLSB / 4096.0f + AccOffsetY;
 AccZ = AccZLSB / 4096.0f + AccOffsetZ;
 ```
 
-Defaults remain **-0.10, +0.03, +0.12 g**. Each is limited to ±0.5g. Group6/schema2 is the existing offset section. Applying requires disarmed state, invalidates the prior IMU/input result and rebases attitude after the next valid sensor read. Gyro calibration is independent. This page provides manual offset editing, not an automatic calibration algorithm.
+Defaults remain **-0.10, +0.03, +0.12 g**. Each is limited to ±0.5g. Group6/schema2 is the existing offset section. Applying requires disarmed state, invalidates the prior IMU/input result and rebases attitude after the next valid sensor read. Gyro calibration is independent. The Readings tab provides manual offset editing. Use the Calibration tab for automatic capture and sensor verification.
 
 ## PID and settings
 

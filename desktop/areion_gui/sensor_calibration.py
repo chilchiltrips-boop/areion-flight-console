@@ -5,9 +5,9 @@ https://ardupilot.org/copter/docs/common-accelerometer-calibration.html
 https://docs.px4.io/main/en/config/accelerometer
 https://docs.px4.io/main/en/config/gyroscope
 
-This is an axis-aligned opposite-face bias/scale estimate, not PX4's general
-least-squares/off-axis calibration. Firmware 2.5.0 can store only additive ACC
-offsets. Scale factors and gyro residual correction remain Python diagnostics.
+Opposite faces provide an axis-aligned bias and scale estimate. The controller
+stores the three additive accelerometer offsets. Scale factors and gyro
+residual correction are available as console diagnostics.
 The caller must invalidate the entire six-face session if FC identity, active
 offsets, board orientation, or freshness/disarmed/IMU-valid state changes.
 """
@@ -70,10 +70,10 @@ def corrected_gyro_preview(values, result):
 
 class _StationaryWindow:
     """Bounded collection window shared by pose and gyro residual captures."""
-    def __init__(self, started, pose=None):
+    def __init__(self, started, pose=None, *, gravity_checked=False):
         if type(started) not in (int,float) or not math.isfinite(started):
             raise ValueError('Capture start time must be finite.')
-        self.started=float(started);self.pose=pose
+        self.started=float(started);self.pose=pose;self.gravity_checked=gravity_checked
         self.samples=[];self.first_stamp=None;self.last_stamp=None
         self.error='';self.result=None
 
@@ -95,7 +95,7 @@ class _StationaryWindow:
         except (ValueError,TypeError):
             self.error='Capture stopped: invalid sensor sample.';return
         gyro=[float(x) for x in values[:3]];acc=[float(x) for x in values[3:6]]
-        if max(abs(x) for x in gyro)>5. or not .6<=math.sqrt(sum(x*x for x in acc))<=1.5:
+        if max(abs(x) for x in gyro)>5. or (not self.gravity_checked and not .6<=math.hypot(*acc)<=1.5):
             self.error='Movement or implausible sensor values detected. Keep the board still and retry.';return
         if self.pose:
             axis=self.pose['axis'];sign=self.pose['sign']
@@ -174,10 +174,13 @@ class SixFaceCalibration:
         if any(not .8<=gain<=1.2 for gain in scale):
             raise ValueError('Required sensor scale is implausible. Check mounting/orientation and repeat all six positions.')
         residuals=[]
+        offset_residuals=[]
         for pose in POSES:
             raw=self.faces[pose['key']]['mean_raw_acc_g']
-            corrected=[(raw[i]+offsets[i])*scale[i] for i in range(3)]
-            error=math.sqrt(sum((corrected[i]-pose['target'][i])**2 for i in range(3)))
+            adjusted = [value + offset for value, offset in zip(raw, offsets)]
+            offset_residuals.append(math.dist(adjusted, pose['target']))
+            corrected = [value * gain for value, gain in zip(adjusted, scale)]
+            error = math.dist(corrected, pose['target'])
             residuals.append(error)
             if error>.25:
                 raise ValueError('The six positions are inconsistent. Use closer axis alignment and repeat all positions.')
@@ -188,6 +191,7 @@ class SixFaceCalibration:
             'baseline_offsets':list(self.baseline),'candidate_offsets':offsets,
             'required_scale':scale,'scale_required':any(abs(gain-1.)>.03 for gain in scale),
             'faces':deepcopy(self.faces),'max_fit_residual_g':max(residuals),
+            'max_additive_residual_g':max(offset_residuals),
             'mean_acc_g':[sum(r['mean_acc_g'][i]*r['samples'] for r in records)/samples for i in range(3)],
             'mean_gyro_dps':[sum(r['mean_gyro_dps'][i]*r['samples'] for r in records)/samples for i in range(3)],
             'std_acc_g':[max(r['std_acc_g'][i] for r in records) for i in range(3)],
@@ -195,6 +199,108 @@ class SixFaceCalibration:
             'gyro_residual_ok':all(max(abs(x) for x in r['mean_gyro_dps'])<=1. for r in records),
             'fc_supported_correction':'additive_offsets_only','applied_to_fc':False,
             'full_calibration_applied_to_fc':False}
+
+
+def _gravity_face(acc):
+    """A broad capture cone accommodates an uncalibrated board; the fit checks all six faces."""
+    if not .6 <= math.hypot(*acc) <= 1.55:
+        return None
+    axis = max(range(3), key=lambda i: abs(acc[i]))
+    if not .55 <= abs(acc[axis]) <= 1.5 or any(abs(acc[i]) > .35 for i in range(3) if i != axis):
+        return None
+    return next(p['key'] for p in POSES if p['axis'] == axis and p['sign'] * acc[axis] > 0)
+
+
+class AutomaticSixFaceCalibration(SixFaceCalibration):
+    """Collect each observed stationary face once, within one continuously verified FC session."""
+
+    def __init__(self, baseline, demo=False, *, started):
+        super().__init__(baseline, demo)
+        if type(started) not in (int, float) or not math.isfinite(started):
+            raise ValueError('Invalid session start time.')
+        self.started = started
+        self.last_stamp = None
+        self.last_captured = None
+        self.detected_key = None
+        self.running = True
+        self.hint = 'Place the kit on any uncaptured face.'
+
+    @property
+    def suggested_key(self):
+        return next((p['key'] for p in POSES if p['key'] not in self.faces), None)
+
+    def _wait(self, hint):
+        self.current = self.current_key = None
+        self.hint = hint
+        return 'waiting'
+
+    def cancel_capture(self, reason='Capture cancelled.'):
+        super().cancel_capture(reason)
+        self.running = False
+        self.hint = self.error
+
+    def _fail(self, message):
+        self.cancel_capture(message)
+        self.result = None
+        return 'error'
+
+    def add(self, values, stamp, now, safe):
+        if not self.running:
+            return 'complete' if self.result else 'error'
+        if (safe is not True or not all(type(t) in (int, float) and math.isfinite(t) for t in (stamp, now))
+                or not 0 <= now - stamp <= MAX_AGE_S):
+            return self._fail('IMU or disarmed lock lost. Reconnect and start again.')
+        if stamp < self.started or (self.last_stamp is not None and stamp <= self.last_stamp):
+            return 'collecting' if self.current else 'waiting'
+        if self.last_stamp is not None and stamp - self.last_stamp > MAX_AGE_S:
+            return self._fail('IMU sample gap. Check the connection and start again.')
+        self.last_stamp = stamp
+        try:
+            sample = validate_values(21, values)
+        except (TypeError, ValueError):
+            return self._fail('Invalid IMU sample. Check the sensor and start again.')
+        acc = sample[3:6]
+        corrected_face = _gravity_face(acc)
+        raw_face = _gravity_face([value - offset for value, offset in zip(acc, self.baseline)])
+        self.detected_key = corrected_face or raw_face
+        if corrected_face and raw_face and corrected_face != raw_face:
+            self.detected_key = None
+        if max(map(abs, sample[:3])) > 5 or self.detected_key is None:
+            return self._wait('Turn to an uncaptured face, then hold still.')
+        if self.detected_key in self.faces:
+            return self._wait('Face captured. Turn to the next position.')
+        if self.current_key != self.detected_key:
+            self.current_key = self.detected_key
+            self.current = _StationaryWindow(stamp, gravity_checked=True)
+            self.low = list(acc)
+            self.high = list(acc)
+        else:
+            self.low = list(map(min, self.low, acc))
+            self.high = list(map(max, self.high, acc))
+            if max(high-low for high, low in zip(self.high, self.low)) > .10:
+                return self._wait('Movement detected. Set the kit down and hold still.')
+        pose = self.current_key
+        state = super().add(sample, stamp, now, True)
+        if state == 'error':
+            if len(self.faces) == len(POSES):
+                return self._fail(self.error)
+            self.error = ''
+            return self._wait('Unsteady samples. Hold this face still to retry.')
+        if state in ('captured', 'complete'):
+            record = self.faces[pose]
+            if max(map(abs, record['mean_gyro_dps'])) > 1.:
+                return self._fail('Gyro drift exceeds 1 °/s. Restart the kit on a stationary surface, then repeat.')
+            self.last_captured = pose
+            self.hint = 'Face captured. Turn to another position.'
+        else:
+            self.hint = 'Hold this position still.'
+        if state == 'complete':
+            if self.result['max_additive_residual_g'] > .12:
+                return self._fail('Offset-only residual exceeds 0.12 g. Align all six faces more accurately and repeat.')
+            self.running = False
+            self.hint = 'Six positions verified. Save the sensor calibration.'
+        return state
+
 
 
 class GyroCalibration(_StationaryWindow):

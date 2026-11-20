@@ -10,6 +10,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from fc_fixture import make_test_window
 from areion_gui.backend import apply_pid
+from areion_gui.sensor_calibration import POSES
 from setup_fixtures import complete_demo_window
 
 class DirectCalibrationTests(unittest.TestCase):
@@ -55,9 +56,28 @@ class DirectCalibrationTests(unittest.TestCase):
     def test_imu_save_and_finish_preserve_unrelated_pid_and_input(self):
         page=self.begin('imu');prior={g:self.w.link.saved[g][:] for g in (2,3,4,7,112,132,134)}
         self.assertFalse(self.w._setup_arm_allowed())
-        page.sensor_panel.offsets[0].setValue(-.11);page.orientation_check.setChecked(True)
+        page.sensor_panel.offsets[0].setValue(-.11)
         QTest.qWait(60);page.sensor_save.click();QTest.qWait(220)
-        self.assertEqual(self.w.link.saved[6][0],-.11);self.assertTrue(page._finish_ready())
+        self.assertEqual(self.w.link.saved[6][0],-.11)
+        self.assertFalse(self.w.link.read_group(130)[5])
+        self.assertFalse(page._finish_ready())
+        # Drive one real desktop capture with deterministic group-21 packets.
+        panel=page.sensor_panel
+        ticks=len(POSES)*32
+        end=time.monotonic();now=end-ticks*.1
+        values=dict(page.live);identity=page.fc_identity
+        with patch('areion_gui.calibration_panel.time.monotonic',side_effect=lambda:now):
+            panel.update_telemetry(values,now,now,identity,True,True)
+            panel.capture_button.click()
+            for pose in POSES:
+                for _ in range(32):
+                    now+=.1
+                    values[21]=[.1,-.04,.02,*pose['target'],0.,0.,0.,0.]
+                    panel.update_telemetry(values,now,now,identity,True,True)
+        self.assertTrue(panel.has_current_result, panel.acc_status.text())
+        QTest.qWait(60);page.sensor_save.click();QTest.qWait(250)
+        self.assertTrue(self.w.link.read_group(130)[5], page.last_message)
+        self.assertTrue(page._finish_ready(),page.last_message)
         # Changing PID elsewhere must not be reverted by a hidden profile draft.
         changed=self.w.link.values[2][:];changed[0]=1.23;apply_pid(self.w.link,2,changed)
         prior[2]=changed
@@ -163,7 +183,7 @@ class DirectCalibrationTests(unittest.TestCase):
 
     def test_failed_offset_save_cannot_finish_or_report_success(self):
         page=self.begin('imu');old=self.w.link.saved[6][:]
-        page.sensor_panel.offsets[0].setValue(-.14);page.orientation_check.setChecked(True)
+        page.sensor_panel.offsets[0].setValue(-.14)
         with patch.object(self.w.link,'save_group',side_effect=RuntimeError('storage unavailable')):
             page.sensor_save.click();QTest.qWait(200)
         self.assertIn('storage unavailable',page.last_error)

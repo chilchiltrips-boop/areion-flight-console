@@ -290,7 +290,7 @@ class ExtendedSetupWizard(QWidget):
         self.rx_progress.setValue(0);self.rx_status.setStyleSheet('');self.rx_extent.setText('Receiver defaults');self.rx_status.setText('Kit receiver defaults loaded. Capture range before flight.')
         self.motor_running=False;self.motor_candidate=[None]*4;self.motor_slider.setValue(1000)
         for item in self.minimum_labels:item.setText('Start not recorded')
-        for checkbox in (self.orientation_check,self.rx_direction_check,self.esc_compatible,
+        for checkbox in (self.rx_direction_check,self.esc_compatible,
                          self.esc_response,self.esc_skip_check,self.output_prop_check,
                          self.battery_check,self.motor_verified_check,self.save_ack,self.reset_confirm):
             checkbox.setChecked(False)
@@ -406,12 +406,12 @@ class ExtendedSetupWizard(QWidget):
         self.wire_detail.setText(labels[index])
 
     def _sensor_page(self):
-        box=self._page('Sensors','Capture the six ACC positions, then place the kit level and verify the live attitude direction.')
+        box=self._page('Sensors','Place the kit on each of its six faces. Each position is recognized and captured automatically.')
         self.sensor_panel=CalibrationPanel(self.configuration['imu'])
         self.sensor_panel.read_requested.connect(lambda:self._request('read',{'groups':[6]}))
         self.sensor_panel.changed.connect(self._sensor_changed);box.addWidget(self.sensor_panel)
-        self.orientation_check=QCheckBox('Level and movement match the board.');self.orientation_check.toggled.connect(self._update_navigation);box.addWidget(self.orientation_check)
-        self.sensor_save=button('Save offsets',self._save_sensors,'primary');box.addWidget(self.sensor_save);box.addStretch()
+        self.sensor_save=button('Save calibration',self._save_sensors,'primary')
+        box.addWidget(self.sensor_save);box.addStretch()
 
     def _receiver_page(self):
         box = self._page('PPM receiver', 'Move the sticks on your physical transmitter.')
@@ -809,7 +809,7 @@ class ExtendedSetupWizard(QWidget):
             return
         self.visit_active=True;self.begin_requested=False;self.begin_confirmed=False;self.finalized_this_visit=False
         self.propeller_check.setChecked(False);self.output_prop_check.setChecked(False);self.battery_check.setChecked(False)
-        self.orientation_check.setChecked(False);self.save_ack.setChecked(False);self.esc_compatible.setChecked(False)
+        self.save_ack.setChecked(False);self.esc_compatible.setChecked(False)
         self.esc_response.setChecked(False);self.esc_skip_check.setChecked(False)
         self.motor_verified_check.setChecked(False);self.rx_direction_check.setChecked(False);self.sensor_panel.new_visit()
         self.reset_confirm.setChecked(False)
@@ -974,6 +974,11 @@ class ExtendedSetupWizard(QWidget):
                 self.reset_unverified=True;self.reset_progress.setRange(0,100);self.reset_progress.setValue(0)
                 self.reset_status.setText('Reset readback is incomplete. Reload from the kit before continuing.')
                 self._set_message(str(exc),True);self._update_navigation();return
+        elif action=='save_calibration':
+            if result.get('ack') != ['SETUP_UPDATED'] or not self.status or not self.status[5]:
+                self._set_message('The kit did not confirm sensor verification.',True);self._update_navigation();return
+            self.sensor_panel.mark_saved()
+            self._set_message('Sensor calibration saved and verified on the kit.')
         elif action=='apply_save':
             # Readback confirms the requested draft; do not erase a just-captured sensor result.
             for g,key in ((4,'arming'),(7,'flight'),(112,'timeouts'),(134,'setup_values')):
@@ -1018,7 +1023,7 @@ class ExtendedSetupWizard(QWidget):
                     self.saved.emit(str(self.draft_path))
                 except (OSError,ValueError,TypeError) as exc:
                     self._set_message('Kit save verified, but local backup failed: '+str(exc),True)
-        if action in ('apply_save','command','input','read','reset_all'):self._checkpoint()
+        if action in ('apply_save','save_calibration','command','input','read','reset_all'):self._checkpoint()
         if after:after()
         self._update_navigation()
 
@@ -1110,12 +1115,22 @@ class ExtendedSetupWizard(QWidget):
         self._request('input',{'source':source})
 
     def _sensor_changed(self):
-        if not self._loading:self.configuration['imu']=self.sensor_panel.snapshot()
+        if not self._loading:
+            self.configuration['imu'] = self.sensor_panel.snapshot()
+            self._update_navigation()
 
     def _save_sensors(self):
-        if not self.orientation_check.isChecked():return
-        self.configuration['imu']=self.sensor_panel.snapshot()
-        self._apply({6:self.configuration['imu']['offsets']},lambda:self._command('SENSOR_OK',[1,0,0,0]))
+        if not (self.step == 3 and self._ready() and self.propeller_check.isChecked()
+                and self._imu_ready() and not self.sensor_panel.active):
+            return
+        imu = self.sensor_panel.snapshot()
+        self.configuration['imu'] = imu
+        if self.sensor_panel.has_current_result:
+            self._request('save_calibration', {'groups': {6: imu['offsets']},
+                'acc_origin': imu['offsets_origin'], 'baseline': imu['result']['baseline_offsets'],
+                'identity': self.fc_identity})
+        elif imu['offsets_origin'] == 'manual':
+            self._apply({6: imu['offsets']})
 
     def _draft_setup_values(self):
         cfg=list(self.configuration['setup_values']);cfg[0]=self.profile_keys.index(self.configuration['pid']['selected'])
@@ -1321,7 +1336,9 @@ class ExtendedSetupWizard(QWidget):
 
     def _requirements_ready(self):
         s=self.status
-        return bool(not self.reset_unverified and s and s[0] and s[5] and (s[6] or self.configuration['input_source']!='PPM') and
+        current_offsets = self.live.get(6)
+        return bool(not self.sensor_panel.active and current_offsets and equal_values(self.sensor_panel.config['offsets'], current_offsets)
+                    and not self.reset_unverified and s and s[0] and s[5] and (s[6] or self.configuration['input_source']!='PPM') and
                     s[3] in (4,5) and s[4]==15 and self._arming_matches_fc() and not s[8] and s[2] not in (2,3,4))
 
     def _show_step(self,index):
@@ -1405,7 +1422,7 @@ class ExtendedSetupWizard(QWidget):
                 self.rx_extent.setText('Roll  ·  Pitch  ·  Throttle  ·  Yaw')
                 self.rx_status.setStyleSheet('')
                 self.rx_status.setText('Sweep all four axes from end to end.')
-                self.orientation_check.setChecked(False);self.rx_direction_check.setChecked(False)
+                self.rx_direction_check.setChecked(False)
                 self.motor_candidate=[None]*4;self.esc_response.setChecked(False);self.receiver_review_available=False
                 self.last_status=None;self.last_settings={};self.begin_confirmed=False;self.begin_requested=False;self._show_step(0)
                 self.propeller_check.setChecked(False);self.configuration['checks']={}
@@ -1421,7 +1438,8 @@ class ExtendedSetupWizard(QWidget):
                         self.rx_extent.setText('Saved calibration')
                         self.rx_status.setText('The kit reports a verified receiver calibration.')
         safe=bool(self.connected and self.disarmed and s and s[0] and self.propeller_check.isChecked())
-        self.sensor_panel.update_telemetry(self.live,stamp,now,identity,self.demo,self._sensor_capture_safe(safe))
+        sensor_safe = bool(safe and self.begin_confirmed and not s[8] and s[3] not in (1, 2))
+        self.sensor_panel.update_telemetry(self.live,stamp,now,identity,self.demo,self._sensor_capture_safe(sensor_safe))
         self.raw=self.live.get(131);self.rx_stamp=self.live.get('_raw_stamp')
         self._refresh_receiver_preview(now)
         if self.rx_capture:
@@ -1544,7 +1562,7 @@ class ExtendedSetupWizard(QWidget):
         if self.step==0:allowed=allowed and locked
         elif self.step==1:allowed=allowed and complete[1]
         elif self.step==2:allowed=allowed and complete[2]
-        elif self.step==3:allowed=allowed and complete[3]
+        elif self.step==3:allowed=allowed and complete[3] and not self.sensor_panel.active and self.live.get(6) is not None and equal_values(self.sensor_panel.config['offsets'],self.live[6])
         elif self.step==4:allowed=allowed and complete[4]
         elif self.step==5:allowed=allowed and complete[5]
         elif self.step==6:allowed=allowed and complete[6] and not self.motor_running
@@ -1558,7 +1576,10 @@ class ExtendedSetupWizard(QWidget):
             self.next_button.setEnabled(True)
         self.footer_note.setText('DEMO ONLY · no physical calibration or flight readiness' if self.demo else self._saved_label('Saved to kit') if done else 'Setup in progress · flight arming locked' if locked else 'Waiting for the kit to confirm its setup lock')
         for b in (self.aircraft_apply,self.input_apply,self.arming_save):b.setEnabled(edit_ready and props)
-        self.sensor_save.setEnabled(edit_ready and self._imu_ready() and props and self.orientation_check.isChecked() and not self.sensor_panel.active)
+        manual = self.sensor_panel.config['offsets_origin'] == 'manual'
+        self.sensor_save.setText('Save edited offsets' if manual else 'Save calibration')
+        self.sensor_save.setEnabled(bool(edit_ready and self._imu_ready() and props and not self.sensor_panel.active
+                                    and (self.sensor_panel.has_current_result or manual)))
         preview_now = time.monotonic()
         self._refresh_mode_test(preview_now)
         signal_expired = self.rx_available and (self.rx_stamp is None or preview_now - self.rx_stamp > MAX_TELEMETRY_AGE_S)

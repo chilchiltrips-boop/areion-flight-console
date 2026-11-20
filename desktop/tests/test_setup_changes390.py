@@ -112,6 +112,14 @@ class ReviewChangesTests(unittest.TestCase):
         w.action_requested.connect(lambda action, payload: out.append((action, payload)))
         w.save_ack.setChecked(True)
         w._finalize()
+        self.assertEqual(out, [])
+        # A separate active/stored offset readback and kit sensor check precede finalization.
+        w.live[6] = w._final_groups()[6][:]
+        w.live[130][5] = False
+        w._finalize()
+        self.assertEqual(out, [])
+        w.live[130][5] = True
+        w._finalize()
         self.assertEqual(out[-1][0], 'finalize')
         self.assertEqual(out[-1][1]['groups'], w._final_groups())
 

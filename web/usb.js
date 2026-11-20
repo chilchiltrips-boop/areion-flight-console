@@ -94,7 +94,7 @@ export class UsbTelemetry {
   }
 
   data(run,msg,at) {
-    const row={group:msg.group,values:msg.data,at};
+    const row={group:msg.group,values:msg.data,at,event:msg.session===run.fc};
     run.latest.set(msg.group,row);
     this.onData(row);
   }
