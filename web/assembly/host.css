@@ -1,0 +1,25 @@
+/* Give the viewer the actual space between the shared header and session status. */
+body[data-page="assembly"] {
+  display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden;
+}
+body[data-page="assembly"] .mast { flex: none }
+body[data-page="assembly"] main {
+  display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%;
+  margin: 0 auto; padding: .45rem clamp(.35rem, 1vw, .9rem) .35rem;
+}
+body[data-page="assembly"] #assembly-page { position: relative; flex: 1; min-height: 0 }
+body[data-page="assembly"] #assembly-page .assembly-frame {
+  position: absolute; inset: 0; height: 100%;
+}
+body[data-page="assembly"] .console-status { flex: none; margin-top: .3rem }
+@media (max-width: 740px) {
+  body[data-page="assembly"] .console-mast nav {
+    flex: 1 0 100%; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: thin;
+  }
+  body[data-page="assembly"] .console-mast .nav { flex: none }
+}
+@media (max-width: 540px) {
+  body[data-page="assembly"] .traffic-meter { min-width: 43px; padding-inline: 2px }
+  body[data-page="assembly"] .traffic-row { grid-template-columns: 16px 1fr }
+  body[data-page="assembly"] .traffic-bars { display: none }
+}

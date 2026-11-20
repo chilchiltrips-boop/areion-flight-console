@@ -317,7 +317,7 @@ ctx.init3D = function init3D(){
    ctx.renderer=new CanvasRenderer(ctx.THREE);
  }
  ctx.renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
- ctx.renderer.setSize(w,h);
+ ctx.renderer.setSize(w,h,false);
  e.appendChild(ctx.renderer.domElement);
  ctx.controls=new ctx.MiniOrbitControls(ctx.camera,ctx.renderer.domElement);ctx.controls.target.set(0,.58,0);ctx.controls._syncFromCamera();ctx.controls.enableDamping=true;ctx.controls.minDistance=4;ctx.controls.maxDistance=26;
  // Balanced engineering lighting preserves authored component colours instead of washing them toward white.
@@ -566,7 +566,15 @@ ctx.deleteInstalled = function deleteInstalled(id){
 
 ctx.showGuides = function showGuides(){if(!ctx.guidesRoot)return;ctx.guidesRoot.clear();const s=ctx.steps[ctx.state.step];if(!s.types.length)return;s.types.forEach(t=>(ctx.slots[t]||[]).forEach(q=>{if(ctx.state.parts.some(p=>p.type===t&&p.slotId===q.id))return;const R=t.includes('Screw')?.13:(t==='armRed'||t==='armWhite')?.55:.28,g=new ctx.THREE.Mesh(new ctx.THREE.RingGeometry(R*.65,R,28),new ctx.THREE.MeshBasicMaterial({color:ctx.C.green,transparent:true,opacity:.55,side:ctx.THREE.DoubleSide}));g.rotation.x=-Math.PI/2;g.position.set(q.p[0],q.p[1]+.03,q.p[2]);ctx.guidesRoot.add(g)}))};
 
-ctx.resize3D = function resize3D(){if(!ctx.renderer||!ctx.camera)return;const e=ctx.$('#threeContainer');if(!e)return;const r=e.getBoundingClientRect(),w=Math.max(1,Math.round(e.clientWidth||r.width||900)),h=Math.max(1,Math.round(e.clientHeight||r.height||600));ctx.camera.aspect=w/h;ctx.camera.updateProjectionMatrix();ctx.renderer.setSize(w,h,false)};
+ctx.resize3D = function resize3D() {
+ const viewport = ctx.$('#threeContainer');
+ if (!ctx.renderer || !ctx.camera || !viewport) return;
+ const {clientWidth:width, clientHeight:height} = viewport;
+ if (!width || !height) return;
+ ctx.camera.aspect = width / height;
+ ctx.camera.updateProjectionMatrix();
+ ctx.renderer.setSize(width, height, false);
+};
 
 ctx.loop3D = function loop3D(t){
  requestAnimationFrame(loop3D);if(document.hidden||!ctx.$('#tab-assembly')?.classList.contains('active'))return;ctx.fpsFrames++;if(t-ctx.fpsLast>1000){ctx.runtimeFps=Math.round(ctx.fpsFrames*1000/(t-ctx.fpsLast));ctx.fpsFrames=0;ctx.fpsLast=t;}
@@ -612,15 +620,9 @@ ctx.setView = function setView(v){
  if(v==='top')ctx.camera.position.set(0,19,.01);
  if(v==='front')ctx.camera.position.set(0,4.2,15.8);
  ctx.controls.target.set(0,.58,0);ctx.controls._syncFromCamera();
- const active={'3d':'view3dBtn',top:'topBtn',front:'frontBtn'}[v];
- for (const id of ['view3dBtn','topBtn','frontBtn']) {
-   const button = ctx.$('#' + id);
-   button.classList.toggle('active', id === active);
-   button.setAttribute('aria-pressed', String(id === active));
- }
+
 };
 
-ctx.toggleExplode = function toggleExplode(){ctx.state.exploded=!ctx.state.exploded;ctx.$('#explodeBtn').classList.toggle('active',ctx.state.exploded);ctx.state.parts.forEach((p,i)=>{const s=ctx.slots[p.type]?.find(x=>x.id===p.slotId);if(!s)return;p.obj.position.set(s.p[0]*(ctx.state.exploded?1.15:1),s.p[1]+(ctx.state.exploded?.35+(i%5)*.15:0),s.p[2]*(ctx.state.exploded?1.15:1))});ctx.rebuild3DWires()};
 
 ctx.installed = function installed(type,slotId){return ctx.state.parts.find(p=>p.type===type&&p.slotId===slotId)?.obj||null};
 

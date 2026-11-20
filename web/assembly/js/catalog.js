@@ -15,16 +15,29 @@ ctx.setBootStatus = function setBootStatus(text,kind=''){const s=ctx.$('#assetSt
 
 ctx.MiniOrbitControls = class MiniOrbitControls {
  constructor(camera,dom){
-  this.object=camera;this.domElement=dom;this.target=new ctx.THREE.Vector3();this.enabled=true;this.enableDamping=true;this.minDistance=3;this.maxDistance=30;this.autoRotate=false;this.autoRotateSpeed=1.25;
+  this.object=camera;this.domElement=dom;this.target=new ctx.THREE.Vector3();this.enabled=true;this.enableDamping=true;this.minDistance=3;this.maxDistance=30;
   this._drag=false;this._moved=0;this._last={x:0,y:0};this._az=0;this._el=.62;this._r=12;this._syncFromCamera();
   dom.style.touchAction='none';
   dom.addEventListener('pointerdown',e=>{if(!this.enabled||e.button!==0)return;this._drag=true;this._moved=0;this._last={x:e.clientX,y:e.clientY};try{dom.setPointerCapture(e.pointerId)}catch{}});
   dom.addEventListener('pointermove',e=>{if(!this.enabled||!this._drag)return;const dx=e.clientX-this._last.x,dy=e.clientY-this._last.y;this._last={x:e.clientX,y:e.clientY};this._moved+=Math.abs(dx)+Math.abs(dy);if(this._moved<4)return;this._az-=dx*.008;this._el=ctx.THREE.MathUtils.clamp(this._el+dy*.006,.08,1.48)});
   const up=e=>{this._drag=false};dom.addEventListener('pointerup',up);dom.addEventListener('pointercancel',up);
-  dom.addEventListener('wheel',e=>{if(!this.enabled)return;e.preventDefault();this._r=ctx.THREE.MathUtils.clamp(this._r+e.deltaY*.010,this.minDistance,this.maxDistance)},{passive:false});
+  const zoom = amount => { this._r = ctx.THREE.MathUtils.clamp(this._r + amount, this.minDistance, this.maxDistance); };
+  dom.addEventListener('wheel', event => {
+    if (!this.enabled || !(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    zoom(event.deltaY * .01);
+  }, {passive:false});
+  dom.tabIndex = 0;
+  dom.setAttribute('aria-description', 'Drag to orbit. Pinch on a trackpad, use Ctrl or Command with scroll, or press plus and minus to zoom.');
+  dom.addEventListener('keydown', event => {
+    if (!this.enabled || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!['+', '=', '-'].includes(event.key)) return;
+    event.preventDefault();
+    zoom(event.key === '-' ? 1 : -1);
+  });
  }
  _syncFromCamera(){const v=this.object.position.clone().sub(this.target);this._r=Math.max(.001,v.length());this._az=Math.atan2(v.x,v.z);this._el=Math.asin(ctx.THREE.MathUtils.clamp(v.y/this._r,-1,1))}
- update(){if(this.autoRotate&&!this._drag)this._az+=.0025*this.autoRotateSpeed;this._r=ctx.THREE.MathUtils.clamp(this._r,this.minDistance,this.maxDistance);const h=Math.cos(this._el)*this._r;this.object.position.set(this.target.x+Math.sin(this._az)*h,this.target.y+Math.sin(this._el)*this._r,this.target.z+Math.cos(this._az)*h);this.object.lookAt(this.target)}
+ update(){this._r=ctx.THREE.MathUtils.clamp(this._r,this.minDistance,this.maxDistance);const h=Math.cos(this._el)*this._r;this.object.position.set(this.target.x+Math.sin(this._az)*h,this.target.y+Math.sin(this._el)*this._r,this.target.z+Math.cos(this._az)*h);this.object.lookAt(this.target)}
 };
 
 ctx.C = {red:0xd23d43,white:0xe8edf2,black:0x3b4853,dark:0x202b34,metal:0xd3dbe2,gold:0xda9a12,pcb:0x0e6c43,orange:0xf59e0b,yellow:0xf6d23b,esc:0x164765,blue:0x2c92ff,pink:0xfb7185,green:0x53efbd,ground:0x4b2f20,brown:0x4b2f20};

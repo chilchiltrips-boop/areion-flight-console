@@ -132,6 +132,7 @@ ctx.setFcLeds = function setFcLeds(powerOn,statusOn,ready=false){
 
 ctx.updatePowerUi = function updatePowerUi(){
  const st=ctx.$('#batteryPowerState'),btn=ctx.$('#batteryConnectBtn'),led=ctx.$('#fcLedState');
+ ctx.$('#stepPower').hidden = !ctx.installed('battery','BAT') && !ctx.state.powered;
  if(st){st.textContent=!ctx.state.powered?'POWER OFF':ctx.state.powerStage<3?'POWERING…':'POWER ON';st.className='status '+(ctx.state.powered?'good':'')}
  if(btn){btn.textContent=ctx.state.powered?'Disconnect battery':'Connect battery XT60';btn.disabled=!ctx.installed('battery','BAT')}
  if(led){led.className='fc-led-state '+(!ctx.state.powered?'off':ctx.state.powerStage<3?'boot':'ready');led.innerHTML=`<i class="pwr"></i>PWR <i class="stat"></i>${!ctx.state.powered?'OFF':ctx.state.powerStage<3?'BOOT':'READY'}`}

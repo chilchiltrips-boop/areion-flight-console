@@ -5,6 +5,24 @@ const cacheName = prefix + '__VERSION__';
 const files = __FILES__;
 const assets = new Set(files.map(path => new URL(path,scope).href));
 const index = new URL('index.html',scope).href;
+const assembly = new URL('assembly/',scope).href;
+
+// A workbench-only update can serve the next bench visit while other console tabs
+// stay open. A change to any shared console file uses the normal waiting lifecycle.
+async function sameConsoleFiles(previous, current) {
+  const core = [...assets].filter(url => !url.startsWith(assembly));
+  const oldCore = (await previous.keys()).filter(request => !request.url.startsWith(assembly));
+  if (oldCore.length !== core.length) return false;
+  for (const url of core) {
+    const [a, b] = await Promise.all([previous.match(url), current.match(url)]);
+    if (!a || !b) return false;
+    const [oldBytes, newBytes] = await Promise.all([a.arrayBuffer(), b.arrayBuffer()]);
+    if (oldBytes.byteLength !== newBytes.byteLength) return false;
+    const next = new Uint8Array(newBytes);
+    if (!new Uint8Array(oldBytes).every((value, i) => value === next[i])) return false;
+  }
+  return true;
+}
 
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
@@ -15,6 +33,15 @@ self.addEventListener('install', event => {
     } catch (error) {
       await caches.delete(cacheName);
       throw error;
+    }
+    if (self.registration.active) {
+      const previous = (await caches.keys()).filter(name => name.startsWith(prefix) && name !== cacheName);
+      if (!previous.length) return;
+      for (const name of previous) {
+        const compatible = await sameConsoleFiles(await caches.open(name), cache).catch(() => false);
+        if (!compatible) return;
+      }
+      await self.skipWaiting();
     }
   })());
 });

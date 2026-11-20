@@ -7,7 +7,15 @@ ctx.product = t=>ctx.products.find(x=>x.type===t);
 
 ctx.showInspector = function showInspector(title,detail,rating={},pins=[],kind='PRODUCT',asset=''){ ctx.$('#inspector').innerHTML=`<div class="type">${kind}</div><h3>${title}</h3><p>${detail}</p><div class="specs">${Object.entries(rating).map(([k,v])=>`<div class="spec"><b>${k}</b><span>${v}</span></div>`).join('')}</div><table class="pin-table">${pins.map(p=>`<tr><td>${p[0]}</td><td>${p[1]}</td></tr>`).join('')}</table>${asset?`<div class="asset-path">3D asset: ${asset}</div>`:''}` };
 
-ctx.notify = function notify(t,k='good'){const e=ctx.$('#snapMessage');e.textContent=t;e.className='snap-message '+k;clearTimeout(notify.t);notify.t=setTimeout(()=>e.className='snap-message',1800)};
+ctx.notify = function notify(text, kind = 'good') {
+ const message = ctx.$('#snapMessage');
+ clearTimeout(notify.timer);
+ message.textContent = text;
+ message.className = 'snap-message ' + kind;
+ notify.timer = setTimeout(() => {
+   if (message.textContent === text) message.textContent = '';
+ }, 2600);
+};
 
 ctx.renderShelf = function renderShelf(){
  const b=ctx.$('#componentShelf');b.innerHTML='';
@@ -109,13 +117,44 @@ ctx.stepTips = {
  inspect:{why:'Final inspection catches assembly and wiring mistakes before flight.',correct:'Review polarity, motor order, FC orientation, props and fasteners.',mistake:'Skipping the checklist after successful power-up.',risk:'A small build error can cause loss of control.',check:'Electrical validator has no critical errors and all guided checks pass.'}
 };
 
+let displayedStep;
 ctx.renderSteps = function renderSteps(){
  ctx.$('#assemblySteps').innerHTML=ctx.steps.map((s,i)=>`<div class="build-step ${i===ctx.state.step?'active':''} ${ctx.stepDone(i)?'done':''}" data-i="${i}" role="button" tabindex="0" aria-label="Step ${i+1}: ${s.title}"><div class="n">${String(i+1).padStart(2,'0')}</div><div><b>${s.title}</b><span>${s.target}</span></div><i class="state-dot"></i></div>`).join('');
  ctx.$$('.build-step').forEach(e=>e.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();e.click()}});
  ctx.$$('.build-step').forEach(e=>e.onclick=()=>{const i=+e.dataset.i;if(ctx.state.guided&&i>ctx.state.step&&!ctx.steps.slice(0,i).every((_,j)=>ctx.stepDone(j))){ctx.notify('Complete earlier guided steps first.','bad');return}ctx.historyPush();ctx.state.step=i;ctx.renderAssemblyUI();ctx.showGuides()});
- const s=ctx.steps[ctx.state.step],tip=ctx.stepTips[s.id]||{},wiringStep=ctx.wiringActionIds.has(s.id);ctx.$('#currentStepTitle').textContent=s.title;ctx.$('#currentStepCard').innerHTML=`<b>${s.title}</b><p>${s.desc}</p><div class="targets">Target: ${s.target} • ${ctx.countStep(s)}/${s.need}</div><div class="learning-grid"><div><b>WHY</b><span>${tip.why||'Follow the guided build order.'}</span></div><div><b>CORRECT</b><span>${tip.correct||s.target}</span></div><div><b>COMMON MISTAKE</b><span>${tip.mistake||'Skipping the guided order.'}</span></div><div class="risk"><b>RISK</b><span>${tip.risk||'Incorrect assembly may affect reliability.'}</span></div><div class="checkline"><b>CHECK</b><span>${tip.check||'Verify before continuing.'}</span></div></div>${wiringStep?'<div class="guided-wiring-note">Complete these connections in 2D wiring.</div><div class="guided-wiring-actions"><button id="openWiringStep" class="btn primary">Open 2D wiring</button></div>':s.action?'<button id="doStepAction" class="btn primary full">Complete guided action</button>':''}`;
- if(wiringStep)ctx.$('#openWiringStep').onclick=()=>ctx.setActiveTab('wiring');
- else if(s.action)ctx.$('#doStepAction').onclick=()=>ctx.performAction(s);
+ const s = ctx.steps[ctx.state.step];
+ const tip = ctx.stepTips[s.id];
+ const wiringStep = ctx.wiringActionIds.has(s.id);
+ ctx.$('#stepCount').textContent = `Step ${ctx.state.step + 1} of ${ctx.steps.length}`;
+ ctx.$('#currentStepTitle').textContent = s.title;
+ ctx.$('#partsPanel').hidden = ctx.state.guided && Boolean(s.action);
+ const card = ctx.$('#currentStepCard');
+ card.innerHTML = `<p>${s.desc}</p><div class="targets">${ctx.countStep(s)}/${s.need} · ${s.target}</div>`;
+ if (wiringStep || s.action) {
+   const action = document.createElement('button');
+   action.type = 'button';
+   action.className = 'btn primary';
+   action.id = wiringStep ? 'openWiringStep' : 'doStepAction';
+   action.textContent = wiringStep ? 'Open 2D wiring' : 'Complete guided action';
+   action.onclick = wiringStep ? () => ctx.setActiveTab('wiring') : () => ctx.performAction(s);
+   card.append(action);
+ }
+ ctx.$('#stepNotes').innerHTML = Object.entries({
+   Why:tip.why, Correct:tip.correct, 'Common mistake':tip.mistake, Risk:tip.risk, Check:tip.check
+ }).map(([label,value]) => `<div><b>${label}</b><span>${value}</span></div>`).join('');
+ if (displayedStep !== s.id) {
+   displayedStep = s.id;
+   // Reveal only within each rail. scrollIntoView would also move the enclosing console.
+   const list = ctx.$('#assemblySteps');
+   const active = list.querySelector('.active');
+   if (active && list.offsetHeight) {
+     const itemBox = active.getBoundingClientRect(), listBox = list.getBoundingClientRect();
+     if (itemBox.top < listBox.top) list.scrollTop += itemBox.top - listBox.top;
+     else if (itemBox.bottom > listBox.bottom) list.scrollTop += itemBox.bottom - listBox.bottom;
+   }
+   ctx.$('.right-panel').scrollTop = 0;
+   ctx.$('.bench-panels').scrollTop = 0;
+ }
  ctx.syncWiringPreview(s);
  ctx.$('#progressPill').textContent=Math.round(ctx.steps.filter((_,i)=>ctx.stepDone(i)).length/ctx.steps.length*100)+'%'
 };

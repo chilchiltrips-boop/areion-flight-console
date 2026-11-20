@@ -13,34 +13,29 @@
   <header class="bench-toolbar">
     <h1>F450 assembly</h1>
     <nav class="bench-view-tabs" aria-label="Bench views">
-      <button type="button" data-bench-view="assembly" class="active" aria-pressed="true">3D assembly</button>
-      <button type="button" data-bench-view="wiring" aria-pressed="false">2D wiring</button>
+      <button type="button" data-bench-view="assembly" class="active" aria-pressed="true" aria-label="3D assembly">3D<span> assembly</span></button>
+      <button type="button" data-bench-view="wiring" aria-pressed="false" aria-label="2D wiring">2D wiring</button>
     </nav>
-    <div class="bench-history" aria-label="Build history">
-      <span id="saveState" role="status"></span>
-      <button type="button" id="undoBtn" disabled>Undo</button>
-      <button type="button" id="redoBtn" disabled>Redo</button>
-      <button type="button" id="resetBtn" title="Start an empty build. Undo restores your last build.">Reset build</button>
-    </div>
+    <select id="cameraView" aria-label="Camera view">
+      <option value="3d">Perspective</option>
+      <option value="top">Top view</option>
+      <option value="front">Front view</option>
+    </select>
+    <details id="benchTools" class="bench-tools">
+      <summary>Tools</summary>
+      <div class="tools-menu">
+        <button type="button" id="undoBtn" disabled>Undo</button>
+        <button type="button" id="redoBtn" disabled>Redo</button>
+        <button type="button" id="soundBtn" aria-pressed="true">Sound on</button>
+        <button type="button" id="resetBtn" title="Undo restores your previous build">Reset build</button>
+        <span id="saveState" role="status"></span>
+        <span class="status" id="assetStatus" role="status">Loading models…</span>
+      </div>
+    </details>
   </header>
   <main>
     <section id="tab-assembly" class="tab-panel assembly-layout active" aria-label="3D assembly">
-      <aside class="left-panel">
-        <header class="panel-head"><h2>Build steps</h2><span id="progressPill" class="pill">0%</span></header>
-        <div class="mode-row" aria-label="Build mode">
-          <button id="guidedModeBtn" class="mode active" aria-pressed="true">Guided</button>
-          <button id="freeModeBtn" class="mode" aria-pressed="false">Free build</button>
-        </div>
-        <div class="step-list" id="assemblySteps"></div>
-        <div class="step-actions"><button id="prevStepBtn" class="btn ghost">Previous</button><button id="nextStepBtn" class="btn primary">Next</button></div>
-      </aside>
       <section class="center-stage" aria-label="Assembly workbench">
-        <div class="stage-toolbar" role="group" aria-label="Model view">
-          <button id="view3dBtn" class="active" aria-pressed="true">3D</button>
-          <button id="topBtn" aria-pressed="false">Top</button>
-          <button id="frontBtn" aria-pressed="false">Front</button>
-          <button id="explodeBtn" aria-pressed="false">Exploded</button>
-        </div>
         <div class="three-wrap" id="threeWrap">
           <div id="threeContainer" role="group" aria-label="Interactive three-dimensional F450 workbench"></div>
           <div class="virtual-chip"><span>Virtual bench</span></div>
@@ -55,27 +50,38 @@
             <button class="btn ghost" id="deletePartBtn" aria-label="Remove selected part" disabled>Remove</button>
           </div>
         </div>
-        <div class="stage-power">
-          <button class="view-btn power-connect-btn" id="batteryConnectBtn">Connect battery</button><span class="status" id="batteryPowerState">Power off</span><span class="fc-led-state off" id="fcLedState">FC off</span>
-          <button class="view-btn" id="soundBtn" aria-pressed="true">Sound on</button>
-        </div>
       </section>
-      <aside class="right-panel right-workbench">
-        <section class="right-shelf-section"><header class="panel-head">
-          <h2>Component shelf</h2>
-          <span class="status" id="assetStatus" role="status">Loading models…</span>
-        </header>
-          <p class="shelf-note">Select a part, then tap its mount or choose Place.</p>
-          <div class="component-shelf vertical-shelf" id="componentShelf"></div>
-        </section>
-      </aside>
-      <section class="assembly-bottom-panel" aria-label="Step details">
-        <div class="build-bottom-grid">
-          <div class="current-step-compact"><div class="panel-head compact"><h2 id="currentStepTitle">Current step</h2></div><div id="currentStepCard" class="current-step-card"></div></div>
-          <details class="build-check-compact"><summary>Build checks</summary><div id="buildChecks" class="checks"></div></details>
-          <details class="inspector-section"><summary>Component details</summary><div id="inspector" class="inspector">Select a component to inspect it.</div></details>
-        </div>
-      </section>
+      <div class="bench-panels">
+        <aside class="left-panel" aria-label="Build navigation">
+          <header class="panel-head"><h2>Build steps</h2><span id="progressPill" class="pill">0%</span></header>
+          <div class="mode-row" aria-label="Build mode">
+            <button id="guidedModeBtn" class="mode active" aria-pressed="true">Guided</button>
+            <button id="freeModeBtn" class="mode" aria-pressed="false">Free build</button>
+          </div>
+          <div class="step-list" id="assemblySteps"></div>
+          <div class="step-actions"><button id="prevStepBtn" class="btn ghost">Previous</button><button id="nextStepBtn" class="btn primary">Next</button></div>
+        </aside>
+        <aside class="right-panel" aria-label="Current step and parts">
+          <section class="step-instructions" aria-label="Current step">
+            <span class="step-count" id="stepCount"></span>
+            <h2 id="currentStepTitle">Current step</h2>
+            <div id="currentStepCard" class="current-step-card"></div>
+            <div id="stepPower" class="step-power" hidden>
+              <button id="batteryConnectBtn">Connect battery</button><span class="status" id="batteryPowerState">Power off</span><span class="fc-led-state off" id="fcLedState">FC off</span>
+            </div>
+          </section>
+          <section class="right-shelf-section" id="partsPanel"><header class="panel-head">
+            <h2>Component shelf</h2>
+          </header>
+            <div class="component-shelf vertical-shelf" id="componentShelf"></div>
+          </section>
+          <div class="step-reference">
+            <details><summary>Step notes</summary><div id="stepNotes" class="learning-grid"></div></details>
+            <details><summary>Build checks</summary><div id="buildChecks" class="checks"></div></details>
+            <details><summary>Component details</summary><div id="inspector" class="inspector">Select a component to inspect it.</div></details>
+          </div>
+        </aside>
+      </div>
     </section>
     <section class="tab-panel" id="tab-wiring" hidden aria-label="2D wiring"></section>
   </main>

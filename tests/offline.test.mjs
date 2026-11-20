@@ -75,3 +75,42 @@ test('installed Pages release opens flight, the assembly viewer and scopes with 
   assert.equal(fetchFromWorker('https://example.github.io/another-project/index.html','navigate'), undefined);
   assert.equal(missed, false);
 });
+
+test('an assembly-only release can activate with open tabs, while shared console changes still wait', async () => {
+  const template = await readFile(new URL('../scripts/offline-worker.template',import.meta.url),'utf8');
+  const files = ['index.html','app.js','assembly/viewer.html'];
+  const worker = template.replace('__VERSION__','new').replace('__FILES__',JSON.stringify(files));
+  const prefix = 'areion-console-/areion-flight-console/-';
+  async function installsImmediately(oldFiles, failDownload = false) {
+    const previous = {
+      keys:async () => Object.keys(oldFiles).map(path => new Request(scope + path)),
+      match:async url => {
+        const body = oldFiles[url.slice(scope.length)];
+        return body === undefined ? undefined : new Response(body);
+      }
+    };
+    const next = {
+      async addAll() { if (failDownload) throw Error('Download interrupted'); },
+      match:async url => new Response(url.endsWith('app.js') ? 'app1' : 'new')
+    };
+    let install, work, activated = false, discarded = false;
+    runInNewContext(worker, {
+      URL, Request,
+      self:{registration:{scope,active:{}},skipWaiting:async () => { activated=true; },
+        addEventListener(name,listener) { if (name === 'install') install=listener; }},
+      caches:{keys:async () => [prefix + 'old',prefix + 'new','unrelated-cache'],
+        open:async name => name === prefix + 'new' ? next : previous,
+        delete:async name => { assert.equal(name,prefix + 'new'); discarded=true; }}
+    });
+    install({waitUntil(promise) { work=promise; }});
+    if (failDownload) await assert.rejects(work,/interrupted/);
+    else await work;
+    assert.equal(discarded,failDownload);
+    return activated;
+  }
+  const old = {'index.html':'new','app.js':'app1','assembly/viewer.html':'old layout'};
+  assert.equal(await installsImmediately(old), true);
+  assert.equal(await installsImmediately({...old,'app.js':'app2'}), false);
+  assert.equal(await installsImmediately({...old,'retired.js':'old module'}), false);
+  assert.equal(await installsImmediately(old,true), false);
+});

@@ -15,7 +15,12 @@
   background: var(--base);
 }
 * { box-sizing: border-box }
-body { margin: 0; padding: clamp(.55rem, 1.2vw, 1rem) }
+body {
+  margin: 0; padding: clamp(.35rem, .65vw, .7rem); height: 100dvh;
+  display: flex; flex-direction: column; gap: .45rem; overflow: hidden;
+}
+main { flex: 1; min-height: 0; min-width: 0 }
+#tab-wiring { height: 100%; overflow: auto; overscroll-behavior: contain }
 h1, h2, h3, p, figure { margin: 0 }
 h1 { font-size: clamp(1.35rem, 2vw, 1.9rem); line-height: 1.12; letter-spacing: -.035em }
 h2 { font-size: clamp(1rem, 1.1vw, 1.2rem); line-height: 1.23; letter-spacing: -.015em }
@@ -39,23 +44,31 @@ button.active, button[aria-pressed="true"], .btn.primary {
 button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.primary:hover:enabled { background: #2a645d }
 .btn.danger { color: #ffbdc4; border-color: #87555f }
 .btn.small { font-size: .78rem; min-height: 30px }
-.bench-toolbar, .bench-history, .bench-view-tabs, .mode-row, .step-actions, .panel-head,
-.guided-wiring-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap }
+.mode-row, .step-actions, .panel-head, .step-power {
+  display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
+}
 .bench-toolbar {
-  padding: .65rem .85rem; border: 1px solid var(--line); border-radius: var(--radius);
-  background: linear-gradient(110deg,#233d49,#192e3c 60%); margin-bottom: .7rem; gap: .65rem 1rem;
+  flex: none; position: relative; z-index: 5; display: flex; flex-wrap: nowrap;
+  align-items: center; gap: .5rem; min-width: 0; padding: .28rem .55rem;
+  border: 1px solid var(--line); border-radius: var(--radius); background: #192e3c;
 }
-.bench-toolbar h1 { flex: 1; min-width: max-content }
-.bench-view-tabs {
-  gap: .2rem; padding: .15rem; border: 1px solid #3e5966;
-  background: #142631; border-radius: .5rem;
-}
+.bench-toolbar > * { flex: none; white-space: nowrap }
+.bench-toolbar h1 { flex: 1; font-size: 1.12rem; letter-spacing: -.025em }
+.bench-view-tabs { display: flex; gap: .15rem }
 .bench-view-tabs button { border-color: transparent; background: transparent; color: var(--muted) }
-.bench-view-tabs button.active, .bench-view-tabs button[aria-selected="true"] {
-  color: #d8fff7; background: var(--mint-dark); border-color:#659e98;
+.bench-view-tabs button.active { color: #d8fff7; background: var(--mint-dark); border-color: #659e98 }
+.bench-tools { position: relative }
+.bench-tools summary {
+  padding: .38rem .65rem; border: 1px solid #456273; border-radius: .4rem;
+  background: #243e4e; font-size: .84rem; font-weight: 640;
 }
-.bench-history { margin-left: auto; gap: .32rem }
-.bench-toolbar small, #saveState, .shelf-note { color: var(--muted); font-size: .8rem }
+.tools-menu {
+  position: absolute; right: 0; top: calc(100% + .4rem); z-index: 5;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: .35rem; min-width: 13rem;
+  padding: .55rem; border: 1px solid #496575; border-radius: .5rem;
+  background: #1b313f; box-shadow: 0 6px 18px #08141f70;
+}
+.tools-menu [role="status"] { grid-column: 1/-1; color: var(--muted); font-size: .76rem }
 .status, .pill, .fc-led-state {
   display: inline-flex; align-items: center; gap: .32rem;
   min-height: 1.65rem; padding: .15rem .5rem; border: 1px solid var(--line);
@@ -64,15 +77,18 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .status.good, .pill { background: #173b39; border-color: #3f756d; color: #b3f0dd }
 .status.bad { color: #ffc1be; border-color: #9e6060 }
 .status.warn { color: #ffda9a; border-color: #8d714e }
+/* Only the two side panels scroll. Step text and wiring actions cannot size the scene. */
 #tab-assembly {
-  display: grid; grid-template-columns: minmax(180px,.78fr) minmax(0,2.2fr) minmax(215px,.93fr);
-  align-items: stretch; gap: .65rem;
-  --bench-row: clamp(480px, calc(100svh - 91px), 760px);
+  display: grid; height: 100%; min-height: 0; gap: .5rem;
+  grid-template: "steps bench info" minmax(0, 1fr) / clamp(150px,17%,242px) minmax(0,1fr) clamp(212px,22%,315px);
 }
-.left-panel, .center-stage, .right-panel, .assembly-bottom-panel, .inspector {
-  min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+.bench-panels { display: contents }
+.left-panel, .center-stage, .right-panel, .inspector {
+  min-width: 0; min-height: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
 }
-.left-panel, .right-panel { display: flex; flex-direction: column; padding: .85rem; max-height: var(--bench-row) }
+.left-panel, .right-panel { display: flex; flex-direction: column; padding: .7rem; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color:#4c6979 #142a36 }
+.left-panel { grid-area: steps }
+.right-panel { grid-area: info; gap: .65rem }
 .left-panel { gap: .62rem }
 .panel-head { justify-content: space-between }
 .panel-head small, .inspector .type { display: block; color: var(--mint); font-size: .7rem; font-weight: 750; letter-spacing: .065em }
@@ -95,24 +111,14 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .build-step.done .state-dot { background: var(--mint); border-color: var(--mint) }
 .step-actions { justify-content: space-between; border-top: 1px solid var(--line); padding-top: .65rem }
 
-.center-stage { display: flex; flex-direction: column; min-height: 0; height: var(--bench-row); overflow: hidden; background: #142936 }
-.stage-toolbar, .stage-power {
-  display: flex; align-items: center; flex: none; gap: .3rem; flex-wrap: nowrap;
-  overflow-x: auto; scrollbar-width: thin; white-space: nowrap;
-}
-.stage-toolbar { padding: .38rem .65rem; background: #1c3443; border-bottom: 1px solid var(--line) }
-.stage-toolbar button { min-height: 32px; padding: .28rem .62rem; font-size: .8rem }
-.stage-power { padding: .35rem .65rem; background: #172c39; border-top: 1px solid var(--line) }
-.stage-power > * { flex: none }
-.stage-power button { min-height: 30px; font-size: .77rem; padding: .3rem .48rem }
+.center-stage { grid-area: bench; position: relative; overflow: hidden; background: #112431 }
 .stage-actions {
   position: absolute; z-index: 3; bottom: .65rem; left: .65rem; display: flex; gap: .35rem;
 }
-.stage-actions:has(#snapPartBtn:disabled):has(#deletePartBtn:disabled) { visibility: hidden }
+.stage-actions button:disabled { display: none }
 .stage-actions button { min-height: 34px; box-shadow: 0 2px 6px #08141f5c }
-.stage-actions button:disabled { background: #192f3e; color: #8b9fa9; border-color: #3c5260; opacity: 1 }
 .three-wrap {
-  flex: 1; min-height: 160px; position: relative; overflow: hidden; isolation: isolate;
+  position: absolute; inset: 0; overflow: hidden; isolation: isolate;
   background: #112431; touch-action: none;
 }
 #threeContainer { position: absolute; inset: 0 }
@@ -159,7 +165,14 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .fc-led-state.boot .stat { background:#ffd36f }
 .fc-led-state.ready .stat { background:#83e8ad }
 
-.right-shelf-section { min-height: 0; display: flex; flex-direction: column; gap: .5rem; height: 100% }
+.step-instructions { flex: none; padding-bottom: .6rem; border-bottom: 1px solid var(--line) }
+.step-count { display: block; color: var(--mint); font-size: .77rem; margin-bottom: .25rem; font-weight: 670 }
+.right-shelf-section { flex: 1 0 8.5rem; min-height: 0; display: flex; flex-direction: column; gap: .4rem }
+.step-reference { flex: none; display: grid; gap: .2rem }
+.step-reference summary { padding: .35rem .1rem; font-size: .82rem; font-weight: 600; color: var(--muted) }
+.step-power { margin-top: .55rem }
+#openWiringStep, #doStepAction { margin-top: .5rem }
+
 .component-shelf { display: flex; flex-direction: column; gap: .45rem }
 .shelf-group-title { color: #9db9c4; font-size: .68rem; font-weight: 740; letter-spacing: .07em; margin-block: .4rem .15rem }
 .shelf-complete { color: var(--mint); font-size: .86rem }
@@ -180,24 +193,16 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .product-card span, .one-drag-note, .optional-badge { font-size: .72rem; color: var(--muted) }
 .product-card .count-badge { grid-column: 2; font-size: .72rem; font-style: normal; color: var(--mint) }
 .product-card .model-tag { display: none }
-.assembly-bottom-panel { grid-column: 1/-1; padding: .9rem }
-.build-bottom-grid { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr); gap: .6rem 1.1rem; align-items: start }
-.current-step-compact { grid-row: span 2 }
-.build-bottom-grid details > summary { padding: .5rem .7rem; border: 1px solid var(--line); border-radius: .4rem; font-size: .91rem; font-weight: 700; background: #213948; color: #d8e9ed }
-.inspector-section[open] .inspector { margin-top: .6rem }
-.current-step-compact, .build-check-compact { min-width: 0 }
-.current-step-card { margin-top: .4rem; color: #d6e3e9; font-size: .9rem }
-.current-step-card > b:first-child { display: none }
+.current-step-card { margin-top: .3rem; color: #d6e3e9; font-size: .86rem }
 .targets { color: var(--mint); margin-top: .45rem; font-size: .83rem }
-.learning-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .45rem; margin-block: .7rem }
+.learning-grid { display: grid; grid-template-columns: 1fr; gap: .45rem; margin-block: .7rem }
 .learning-grid > div, .checks .check { padding: .48rem .6rem; border-radius: .35rem; background: #142b39; border: 1px solid #334b58 }
 .learning-grid b, .learning-grid span { display:block }
 .learning-grid b { font-size: .68rem; color: var(--muted); letter-spacing: .055em; margin-bottom: .15rem }
 .learning-grid span, .checks .check { font-size: .81rem }
 .learning-grid .risk b { color: var(--amber) }.learning-grid .checkline b { color: var(--mint) }
-.checks { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .35rem; margin-top: .6rem }
+.checks { display: grid; grid-template-columns: 1fr; gap: .35rem; margin-top: .6rem }
 .checks .check { color: var(--muted) }.checks .check.ok { color: #adedd8; border-color: #497768 }
-.guided-wiring-note { margin: .65rem 0; color: var(--muted) }
 .inspector { padding: .8rem; grid-column: 1/-1 }
 .inspector p { color: var(--muted); font-size: .86rem; margin-top: .35rem }
 .specs { display: flex; flex-wrap: wrap; gap: .75rem; margin: .6rem 0 }
@@ -207,33 +212,33 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .pin-table td { padding: .25rem .6rem; border-bottom: 1px solid var(--line) }
 .asset-path { font-size: .76rem; margin-top: .4rem }
 
-@media (max-width: 995px) {
-  #tab-assembly { grid-template-columns: minmax(175px, .72fr) minmax(0, 2.15fr); --bench-row: clamp(405px, calc(100svh - 92px), 665px) }
-  .right-panel { grid-column: 1/-1; max-height: none }
-  .component-shelf { display: grid; grid-template-columns: repeat(auto-fill,minmax(170px, 1fr)); max-height: 290px; align-items: stretch }
-  .shelf-group-title, .shelf-complete { grid-column: 1/-1 }
+@media (min-width: 700px) and (max-width: 940px) {
+  #tab-assembly { grid-template: "bench info" minmax(0,1fr) / minmax(0,1fr) minmax(210px, 32%) }
+  .bench-panels { display: flex; grid-area: info; min-height: 0; flex-direction: column; gap: .5rem; overflow: auto }
+  .right-panel, .left-panel { flex: none; overflow: visible }
+  .right-panel { order: -1 }
+  .right-shelf-section { flex: none }
+  .component-shelf { max-height: 16rem }
+  .step-list { max-height: 16rem }
 }
-@media (max-width: 650px) {
-  body { padding: .4rem }
-  .bench-toolbar { align-items: flex-start; gap: .55rem; padding: .65rem }
-  .bench-toolbar h1 { flex-basis: 100%; min-width: 0 }
-  .bench-history { margin-left: 0; flex-wrap: wrap }
-  #tab-assembly { grid-template-columns: minmax(0,1fr); --bench-row: clamp(405px, 74svh, 615px) }
-  .center-stage { grid-row: 1 }
-  .right-panel { grid-row: 2 }
-  .left-panel { grid-row: 3; max-height: 430px }
-  .left-panel, .right-panel, .assembly-bottom-panel { padding: .65rem }
-  .build-bottom-grid { grid-template-columns: 1fr }
-  .current-step-compact { grid-row: auto }
-  .component-shelf { grid-template-columns: repeat(auto-fill,minmax(145px,1fr)); max-height: 256px }
+@media (max-width: 699px) {
+  #tab-assembly { grid-template: "bench" minmax(0,2fr) "panels" minmax(0,1fr) / minmax(0,1fr) }
+  .bench-panels { grid-area: panels; min-height: 0; display: flex; flex-direction: column; gap: .4rem; overflow: auto; overscroll-behavior: contain }
+  .right-panel, .left-panel { flex: none; overflow: visible; padding: .55rem }
+  .right-panel { order: -1 }
+  .right-shelf-section { flex: none }
+  .component-shelf { display: grid; grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); max-height: 13rem }
+  .shelf-group-title, .shelf-complete { grid-column: 1/-1 }
   .product-card { grid-template-columns: 2.6rem minmax(0,1fr); gap: .2rem .38rem; padding:.35rem }
   .product-card b { font-size:.81rem }
-  .stage-toolbar button, .stage-actions button, .stage-preview-control button { min-height: 38px }
 }
-@media (max-width: 360px) {
-  .learning-grid, .checks { grid-template-columns: 1fr }
-  .stage-toolbar { gap: .2rem; padding-inline: .4rem }
+@media (max-width: 510px) {
+  .bench-toolbar { gap: .25rem; padding-inline: .35rem }
+  .bench-toolbar h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%) }
+  .bench-view-tabs { margin-right: auto }
+  .bench-toolbar button, .bench-toolbar select, .bench-toolbar summary { padding-inline: .45rem }
 }
+@media (max-width: 355px) { .bench-view-tabs button span { display: none } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important }
 }

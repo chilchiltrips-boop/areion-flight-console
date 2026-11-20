@@ -21,8 +21,7 @@ let ready = false;
 
 function updateControls() {
   for (const [id, pressed] of [
-    ['guidedModeBtn', state.guided], ['freeModeBtn', !state.guided],
-    ['explodeBtn', state.exploded]
+    ['guidedModeBtn', state.guided], ['freeModeBtn', !state.guided]
   ]) {
     const button = get(id);
     button.classList.toggle('active', pressed);
@@ -57,6 +56,7 @@ ctx.down = event => {
 function changeView(name) {
   ctx.stopWiringPreview();
   const assembly = name !== 'wiring';
+  get('cameraView').hidden = !assembly;
   for (const el of document.querySelectorAll('[data-bench-view]')) {
     const selected = el.dataset.benchView === (assembly ? 'assembly' : 'wiring');
     el.classList.toggle('active', selected);
@@ -75,6 +75,18 @@ ctx.setActiveTab = changeView;
 for (const el of document.querySelectorAll('[data-bench-view]')) {
   el.addEventListener('click', () => changeView(el.dataset.benchView));
 }
+
+get('cameraView').addEventListener('change', event => ctx.setView(event.target.value));
+const toolsMenu = get('benchTools');
+document.addEventListener('pointerdown', event => {
+  if (toolsMenu.open && !toolsMenu.contains(event.target)) toolsMenu.open = false;
+});
+toolsMenu.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  event.stopPropagation();
+  toolsMenu.open = false;
+  toolsMenu.querySelector('summary').focus({preventScroll:true});
+});
 
 function setMode(guided) {
   if (state.guided === guided) return;
@@ -104,8 +116,6 @@ const controls = {
   prevStepBtn: () => moveStep(-1), nextStepBtn: () => moveStep(1),
   snapPartBtn: () => ctx.placeSelected(), deletePartBtn: () => ctx.deleteInstalled(state.selectedInstalledId),
   undoBtn: ctx.undoAction, redoBtn: ctx.redoAction, resetBtn: ctx.resetProject,
-  explodeBtn: () => {ctx.stopWiringPreview(); ctx.toggleExplode();},
-  view3dBtn: () => ctx.setView('3d'), topBtn: () => ctx.setView('top'), frontBtn: () => ctx.setView('front'),
   batteryConnectBtn: ctx.toggleBatteryPower,
   soundBtn: () => {
     ctx.soundEnabled = !ctx.soundEnabled;
@@ -179,6 +189,7 @@ async function boot() {
 boot().catch(error => {
   console.error('Assembly initialization failed', error);
   get('app').inert = false;
+  get('benchTools').open = true;
   ctx.setBootStatus('Workbench could not start.', 'bad');
   const retry = document.createElement('button');
   retry.className = 'btn';

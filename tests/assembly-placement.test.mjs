@@ -83,3 +83,28 @@ test('free build preserves its pointer radius and button placement uses the next
   ctx.placeSelected();
   assert.equal(ctx.state.parts[1].slotId, ctx.slots.armRed[0].id);
 });
+
+test('ordinary page scrolling leaves the orbit distance unchanged and deliberate zoom stays available', () => {
+  const ctx = {THREE};
+  catalog(ctx);
+  const canvas = Object.assign(new EventTarget(), {style:{}, setAttribute(){}});
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(8.7,7.6,11.5);
+  const controls = new ctx.MiniOrbitControls(camera,canvas);
+  const radius = () => camera.position.distanceTo(controls.target);
+  const start = radius();
+  const wheel = modifiers => {
+    const event = Object.assign(new Event('wheel',{cancelable:true}), {deltaY:150,...modifiers});
+    canvas.dispatchEvent(event);
+    controls.update();
+    return event.defaultPrevented;
+  };
+  assert.equal(wheel({}), false);
+  assert.ok(Math.abs(radius()-start) < 1e-6);
+  assert.equal(wheel({metaKey:true}), true);
+  assert.ok(Math.abs(radius()-(start+1.5)) < 1e-6);
+  assert.equal(wheel({ctrlKey:true}), true);
+  canvas.dispatchEvent(Object.assign(new Event('keydown',{cancelable:true}), {key:'+'}));
+  controls.update();
+  assert.ok(Math.abs(radius()-(start+2)) < 1e-6);
+});

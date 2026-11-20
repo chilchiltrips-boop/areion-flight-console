@@ -3,7 +3,7 @@
 export function createProjectState() {
   return { guided:true, step:0, selectedType:null, selectedInstalledId:null,
     parts:[], doneActions:new Set(), connections:[],
-    exploded:false, powered:false,
+    powered:false,
     powerStage:0, batteryV:12.2, gpsProtocol:'NMEA_9600' };
 }
 export function snapshot(ctx) {
@@ -63,7 +63,6 @@ export function register(ctx) {
       s.doneActions=new Set((d.actions||[]).filter(x=>ctx.steps.some(t=>t.id===x)));
       s.connections=(d.connections||[]).filter(c=>typeof c.from==='string'&&typeof c.to==='string').map(c=>({...c}));
       s.batteryV=Number(d.batteryV)||12.2;
-      s.exploded=false;
       ctx.wireLayout={...structuredClone(ctx.wireDefaultLayout),...(d.wireLayout||{})};
       ctx.wireNodeTransforms=d.wireNodeTransforms||{};ctx.optionalWireNodes=d.optionalWireNodes||[];
       s.gpsProtocol=d.gpsProtocol==='UBX_10HZ'?'UBX_10HZ':'NMEA_9600';ctx.$('#wireGpsProtocol').value=s.gpsProtocol;

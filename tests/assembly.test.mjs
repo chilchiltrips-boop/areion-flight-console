@@ -26,9 +26,13 @@ function stubGlobal(t, name, value) {
 test('opening Assembly loads its local viewer once and leaving flushes the project before detaching it', async t => {
   let active;
   const frames = [], events = [];
-  const container = {replaceChildren(frame) { active = frame; }};
+  const container = {replaceChildren(layout, frame) {
+    assert.equal(layout.href, new URL('host.css', assets).href);
+    active = frame;
+  }};
   stubGlobal(t, 'document', {
     createElement(tag) {
+      if (tag === 'link') return {};
       assert.equal(tag, 'iframe');
       const frame = {contentWindow:new EventTarget(), remove() { events.push('removed'); active = null; }};
       frame.contentWindow.addEventListener('areion-bench-leave', () => events.push('flush'));
