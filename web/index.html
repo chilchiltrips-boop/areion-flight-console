@@ -15,7 +15,10 @@
   <p id="notice" role="status" hidden></p>
   <div id="replay" class="replay" hidden><strong>Recorded session</strong><button id="play">Play</button><input type="range" id="seek" aria-label="Recording time" min="0" max="1000" value="0"><span id="play-time">0:00</span><button id="close-replay">Close replay</button></div>
   <section id="welcome-page" aria-labelledby="welcome-title">
-    <h1 id="welcome-title">Welcome</h1>
+    <div class="welcome-heading">
+      <h1 id="welcome-title">Welcome</h1>
+      <a class="assembly-shortcut" href="#assembly">3D assembly guide <span aria-hidden="true">→</span></a>
+    </div>
     <div class="launcher">
       <div class="brand-tile"><img src="./assets/console/areion-mark.webp" alt=""><strong>AREION</strong><span>Flight Console</span></div>
       <button class="launch-tile tool-flight" data-route="flight"><img src="./assets/console/launch-flight.svg" alt="">Flight Data</button>
@@ -35,6 +38,7 @@
     </div>
   </section>
   <div class="flight-subnav" id="flight-subnav" hidden><button data-route="flight" id="live-tab">Flight instruments</button><button data-route="record" id="record-tab">Recordings</button></div>
+  <section id="assembly-page" aria-label="Assembly" hidden></section>
   <section id="flight-page" aria-label="Flight Data" hidden></section>
   <section id="record-page" hidden aria-labelledby="page-title">
     <div class="panel"><header><div class="title"><i class="panel-mark"></i><h2>Session recordings</h2></div></header>

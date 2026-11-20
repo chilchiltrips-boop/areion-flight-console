@@ -1,0 +1,125 @@
+/* Interactive F450 electrical bench, scoped to the assembly viewer. */
+#tab-wiring {
+  color: #e3f1f4;
+  min-width: 0;
+}
+#tab-wiring[hidden] { display: none; }
+.wire-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 24%);
+  align-items: start;
+  gap: 12px;
+  min-width: 0;
+}
+.wire-diagram-panel, .wire-detail {
+  border: 1px solid #36515e;
+  background: #152a36;
+  border-radius: 9px;
+  min-width: 0;
+  padding: 12px;
+}
+.wire-sidebar { display: grid; gap: 9px; }
+.wire-section-heading, .wire-controls, .wire-buttons, .wire-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.wire-section-heading { justify-content: space-between; }
+.wire-section-heading h2, .wire-section-heading h3 { margin: 0; color: #f3faf9; }
+.wire-section-heading h2 { font-size: 1.13rem; }
+.wire-section-heading h3, .wire-detail summary { font-size: .94rem; font-weight: 700; }
+.wire-section-heading .status, .wire-controls .status {
+  color: #c0d3d8; font-size: .75rem; font-weight: 700; padding: 4px 7px;
+  border: 1px solid #425b66; border-radius: 5px; background: #233943;
+}
+.wire-section-heading button.status { cursor: pointer; }
+.wire-section-heading .status.good, .wire-controls .status.good { color: #8ee3d2; border-color: #4a978e; }
+.wire-buttons, .wire-controls, .wire-range, .wire-motors { margin-top: 10px; }
+.wire-instruction, .wire-fine { font-size: .82rem; line-height: 1.4; color: #adc3ca; }
+.wire-instruction { margin: 8px 0; }
+.wire-fine { display: block; margin: 7px 0 0; }
+.wire-viewport {
+  position: relative; overflow: auto; border: 1px solid #37505c; border-radius: 7px;
+  background-color: #0a1b25;
+  background-image: linear-gradient(#7aa3b00a 1px, transparent 1px), linear-gradient(90deg,#7aa3b00a 1px,transparent 1px);
+  background-size: 22px 22px;
+}
+#wiringSvg { display:block; width:100%; min-width:810px; height:auto; }
+.wire-legend-row { margin-top:8px; color:#c8dadd; gap:6px 14px; font-size:.76rem; }
+.wire-legend-row span { display:inline-flex; align-items:center; gap:5px; }
+.wire-legend-row i { width:1.05rem; height:3px; border-radius:4px; background:var(--swatch); }
+.wire-legend-row .power { --swatch:#ef535a; }
+.wire-legend-row .ground { --swatch:#b88967; }
+.wire-legend-row .signal { --swatch:#f6ad3c; }
+.wire-legend-row .fivev { --swatch:#fb7185; }
+.wire-detail summary { color:#e2eded; cursor:pointer; }
+.wire-detail[open] summary { margin-bottom:8px; }
+.wire-detail .check, .electrical-issue-list > div, .sync-row { font-size:.81rem; line-height:1.35; }
+.wire-detail .check, .electrical-issue-list > div { padding-block:3px; }
+.wire-detail .ok, .sync-row.done em { color:#8de1bb; }
+.wire-detail .warn { color:#ffcf83; }
+.wire-detail .bad { color:#ffa7a0; }
+.sync-row { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:7px 0; border-bottom:1px solid #314852; }
+.sync-row:last-child { border-bottom:none; padding-bottom:0; }
+.sync-row > span { display:grid; }
+.sync-row span span { color:#9fb7c2; font-size:.75rem; }
+.sync-row em { font-style:normal; font-size:.65rem; font-weight:700; white-space:nowrap; }
+.wire-range, .wire-check { display:flex; gap:6px; align-items:center; font-size:.82rem; margin-top:8px; }
+.wire-range { flex-wrap:wrap; }
+.wire-range input { width:100%; }
+.wire-range output { margin-left:auto; font-variant-numeric:tabular-nums; }
+.wire-motors { display:grid; gap:4px; }
+.wire-motors label { display:flex; align-items:center; gap:5px; font-size:.78rem; }
+.wire-motors b { margin-left:auto; }
+.wire-motors b.running { color:#83dfb9; }
+.wire-motors b.reverse { color:#ffd685; }
+#tab-wiring input[type=checkbox], #tab-wiring input[type=range] { accent-color:#60cbb8; }
+
+#wiringSvg text { font-family:inherit; pointer-events:none; }
+#wiringSvg .svg-front { fill:#83dcc0; font-size:13px; font-weight:750; }
+.wire-bg-arm { fill:#cfd8df15; stroke:#657b8d80; stroke-width:2; }
+.wire-bg-arm.red { fill:#d43b4424; stroke:#f4697077; }
+.wire-bg-plate { fill:#26374485; stroke:#71879799; stroke-width:2; }
+.wire-bg-foot { fill:#53657570; stroke:#8fa1ae99; }
+.wire-node-v8 { cursor:grab; touch-action:none; user-select:none; }
+.wire-node-v8:active { cursor:grabbing; }
+.wire-node-v8 rect { fill:#102634; stroke:#496573; stroke-width:1.4; }
+.wire-node-v8 .drag-handle { fill:#244251; stroke:#4e7283; }
+.wire-node-v8 .node-title { fill:#ebf9f9; font-size:10px; font-weight:700; }
+.wire-node-v8 .node-sub, .flip-badge-2d { fill:#afc5ce; font-size:7px; }
+.wire-node-v8.selected-node rect:first-child { stroke:#71e2c1; stroke-width:2.6; }
+.optional-node .node-title { fill:#a1e8d4; }
+.port-v8 { stroke:#d7ecee; stroke-width:1.4; cursor:crosshair; }
+.port-v8.power { fill:#f05260; }
+.port-v8.ground { fill:#704930; stroke:#ddb798; }
+.port-v8.signal { fill:#ec9b2b; }
+.port-v8.fivev { fill:#fb8298; }
+.port-v8.i2c { fill:#49c5e8; }
+.port-v8.u { fill:#f5c542; } .port-v8.v { fill:#458ff6; } .port-v8.w { fill:#919da7; }
+.port-v8.selected, .port-v8:focus-visible { stroke:#a4ffe0; stroke-width:4; }
+.port-label-v8 { fill:#cfdee4; font-size:8px; }
+.motor-rotor-2d { transform-box:fill-box; transform-origin:center; }
+.motor-ring-2d { fill:#10202a; stroke:#cbd7da; stroke-width:3; }
+.wire-node-v8 .motor-blade-2d { fill:#8295a2; }
+.motor-dir-2d { fill:#94d9ca; font-size:9px; font-weight:700; text-anchor:middle; }
+.motor-dir-2d.reverse { fill:#fac06b; }
+.wire-v8 { fill:none; stroke-linecap:round; cursor:pointer; opacity:.88; }
+.wire-v8.selected { stroke-width:8; opacity:1; filter:url(#glow); }
+.wire-v8.current-flow { stroke-dasharray:14 9; animation:wire-current .6s linear infinite; }
+@keyframes wire-current { to { stroke-dashoffset:-46; } }
+.fc-node-v14 .fc-2d-case { fill:#213641; stroke:#7d9dac; stroke-width:2; }
+.fc-node-v14 .fc-2d-window { fill:#203e3d; stroke:#629c8e; }
+.fc-2d-label, .fc-2d-front { text-anchor:middle; font-weight:700; }
+.fc-2d-label { fill:#e7f5f2; font-size:11px; }
+.fc-2d-front { fill:#90d6c5; font-size:9px; }
+.fc-node-v14 .fc-block-v14 { fill:#162934; stroke:#4a7378; }
+.fc-pin-mini, .fc-section-label, .fc-row-label, .fc-rgb-label-v14 { font-size:7px; font-weight:650; fill:#d3e5e5; }
+.fc-section-label { fill:#8ad2bd; }
+.fc-row-label.source { fill:#ffc66e; } .fc-row-label.fivev { fill:#fda3b3; } .fc-row-label.ground { fill:#dec1a4; }
+.fc-rgb-v14 { fill:#8ad6c3; }
+@media (max-width: 950px) {
+  .wire-layout { grid-template-columns:minmax(0,1fr); }
+  .wire-sidebar { grid-template-columns:repeat(auto-fit,minmax(225px,1fr)); align-items:start; }
+}
+@media (prefers-reduced-motion:reduce) { .wire-v8.current-flow { animation:none; } }

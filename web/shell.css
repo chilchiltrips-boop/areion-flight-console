@@ -10,11 +10,15 @@
 #top-arm{color:#aec3cd}#top-arm[data-armed="true"]{color:#ffc278}
 .link-controls{flex:none}.link-controls .primary{background:#ffbc75;border-color:#efb971;color:#1e2831;padding:.48rem .8rem}.link-controls .primary:hover{background:#ffd29b}.link-controls img{filter:brightness(.25)}
 main{max-width:1670px;margin:0 auto;padding:14px clamp(12px,2vw,30px) 10px}
+#assembly-page .assembly-frame{display:block;width:100%;height:max(540px,calc(100dvh - 154px));border:0;border-radius:12px;background:#101e28}
 .heading{margin:10px 0 16px}.heading h1{font-size:clamp(1.6rem,2.4vw,2.3rem)}
 .flight-subnav{display:flex;gap:.4rem;margin:0 0 .85rem}.flight-subnav button{padding:.4rem .8rem}.flight-subnav .active{color:#c4fff2;border-color:#6fcab9;background:#244746}
 #welcome-page{position:relative;isolation:isolate;overflow:hidden;display:flex;flex-direction:column;height:max(526px,calc(100svh - 151px));padding:clamp(16px,2.4vw,36px);gap:clamp(10px,1.5vw,24px);border:1px solid #c4d6d0;border-radius:14px;background:linear-gradient(135deg,#f1f5ee,#e3eeec 52%,#dbe8e9);color:#193a42;color-scheme:light}
 #welcome-page:before{content:"";position:absolute;z-index:-1;inset:0;background:linear-gradient(49deg,transparent 62%,#ccddd75c 62% 62.15%,transparent 62.15% 64%,#cbded85c 64% 64.15%,transparent 64.15% 66%,#cbded85c 66% 66.15%,transparent 66.15%);pointer-events:none}
 #welcome-title{margin:0;color:#152f37;font-weight:740;font-size:clamp(1.55rem,2.3vw,2.15rem)}
+.welcome-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem 1rem}
+.assembly-shortcut{display:inline-flex;align-items:center;gap:.6rem;padding:.4rem .8rem;border:1px solid #aac6be;border-radius:.45rem;background:#f7fbf8;color:#21554c;font-size:.88rem;font-weight:650;text-decoration:none}
+.assembly-shortcut:hover{background:#daeee7}.assembly-shortcut:focus-visible{outline:3px solid #20897b;outline-offset:2px}
 .launcher{display:grid;grid-template-columns:21fr 13fr 13fr 13fr 24fr;grid-template-rows:repeat(2,minmax(60px,1fr));gap:clamp(7px,.85vw,13px);flex:6;min-height:0}
 .brand-tile{grid-column:1;grid-row:span 2;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:10px;min-width:0;border:1px solid #b5cac8;border-radius:14px;box-shadow:0 2px 2px #13383314;background:linear-gradient(135deg,#fff,#dfebe8)}
 .brand-tile img{width:95%;min-height:0;flex:1;object-fit:contain}.brand-tile strong{font-size:clamp(1.25rem,2.1vw,2.3rem);letter-spacing:.14em;color:#173c43}.brand-tile span{font-weight:550;color:#466269;font-size:clamp(.76rem,.96vw,.98rem)}

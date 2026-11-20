@@ -1,7 +1,7 @@
 import {GrantedPorts} from './ports.js';
 
 const ROUTES = [
-  ['welcome', 'Welcome'], ['flight', 'Flight Data'], ['configuration', 'Configuration'],
+  ['welcome', 'Welcome'], ['assembly', 'Assembly'], ['flight', 'Flight Data'], ['configuration', 'Configuration'],
   ['system', 'System'], ['scopes', 'Scopes'], ['hitl', 'HITL'], ['firmware', 'Firmware']
 ];
 const OPEN = new Set(['opening', 'handshake', 'connected', 'stale']);

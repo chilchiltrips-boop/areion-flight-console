@@ -23,6 +23,7 @@ After all six pass, choose **Save calibration to kit**. The console reads back b
 | Page | Controls and readings |
 | --- | --- |
 | Welcome | Page shortcuts, setup verification, kit status and session events |
+| Assembly | Guided F450 assembly, free build, a 3D parts shelf and a 2D wiring exercise. The browser saves the virtual project locally. [Open Assembly](https://chilchiltrips-boop.github.io/areion-flight-console/#assembly) |
 | Flight Data | Dual-stick transmitter, keyboard and auxiliary controls, eight channels, attitude display, relative yaw, animated IMU, system health and motor outputs |
 | Configuration | Guided setup and restart verification, receiver calibration, IMU capture, ESCs and motor outputs, rate and attitude PID editors with controller readback |
 | System | Live fields with age and state, connection details, event log, copyable diagnostics and CSV export |

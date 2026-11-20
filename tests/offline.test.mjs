@@ -11,7 +11,7 @@ import {runInNewContext} from 'node:vm';
 const build = fileURLToPath(new URL('../scripts/build-pages.mjs', import.meta.url));
 const scope = 'https://example.github.io/areion-flight-console/';
 
-test('installed Pages release opens flight and lazy-loaded scopes with the kit offline from the internet', async t => {
+test('installed Pages release opens flight, the assembly viewer and scopes with the kit offline from the internet', async t => {
   const out = await mkdtemp(join(tmpdir(), 'areion-pages-'));
   t.after(() => rm(out, {recursive:true, force:true}));
   await promisify(execFile)(process.execPath, [build, out]);
@@ -57,11 +57,17 @@ test('installed Pages release opens flight and lazy-loaded scopes with the kit o
     });
     return response;
   }
-  for (const route of ['#flight', '#scopes/spectrum', 'index.html?from=bookmark#system/connection']) {
+  for (const route of ['#flight', '#assembly', '#scopes/spectrum', 'index.html?from=bookmark#system/connection']) {
     const entry = await fetchFromWorker(scope + route, 'navigate');
     assert.equal(entry.toString(), (await readFile(join(out, 'index.html'))).toString());
   }
-  for (const path of ['app.js','scopes.js','scope-data.js','analysis.css','assets/airframes/areion450.obj']) {
+  const benchDocument = await fetchFromWorker(scope + 'assembly/viewer.html', 'navigate');
+  assert.deepEqual(benchDocument, await readFile(join(out,'assembly/viewer.html')));
+  for (const path of [
+    'app.js','scopes.js','scope-data.js','analysis.css','assets/airframes/areion450.obj',
+    'assembly/page.js','assembly/viewer.js','assembly/viewer.css','assembly/wiring.js',
+    'assembly/three.module.min.js','assembly/js/canvas-renderer.js','assembly/f450_bottom_pdb.glb'
+  ]) {
     const asset = await fetchFromWorker(scope + path);
     assert.ok(asset?.length, path + ' must be available in the offline project scope');
   }

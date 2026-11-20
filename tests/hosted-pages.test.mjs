@@ -7,6 +7,7 @@ import {connectionReadout} from '../web/system.js';
 import {diagnostics} from '../web/analysis-common.js';
 import {receiverReadout} from '../web/scopes.js';
 import {mount as mountFirmware} from '../web/firmware.js';
+import {ConsoleShell} from '../web/shell.js';
 
 function sample(overrides={}){
   const groups=new Map([
@@ -50,6 +51,33 @@ test('Scopes distinguishes physical PPM assignments from accepted logical slots 
   assert.ok(receiverReadout(ctx,true).every(row=>row.value===null));
   const offline={...ctx,state:'offline'};
   assert.ok(receiverReadout(offline,false).every(row=>row.value===null));
+});
+
+test('the Assembly deep link activates its workspace and suspends it on return to Flight Data',t=>{
+  const nodes=new Map();
+  const node=id=>{
+    if(!nodes.has(id))nodes.set(id,{hidden:false,textContent:'',classList:{toggle(){}},setAttribute(){},removeAttribute(){}});
+    return nodes.get(id);
+  };
+  const assemblyNav={dataset:{route:'assembly'},classList:{toggle(){}},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];}};
+  const doc={body:{dataset:{}},getElementById:node,querySelectorAll:()=>[assemblyNav]};
+  const originalDoc=globalThis.document,originalWindow=globalThis.window;
+  globalThis.document=doc;globalThis.window={scrollTo(){}};
+  t.after(()=>{if(originalDoc===undefined)delete globalThis.document;else globalThis.document=originalDoc;
+    if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow;});
+  const seen=[];
+  const shell=new ConsoleShell({select:page=>seen.push(page)});
+  shell.modules.set('assembly',{show(){seen.push('show');},suspend(){seen.push('suspend');}});
+  shell.show('#assembly');
+  assert.equal(doc.title,'Assembly · Areion Flight Console');
+  assert.equal(assemblyNav['aria-current'],'page');
+  assert.equal(node('assembly-page').hidden,false);
+  assert.equal(node('workspace-heading').hidden,true);
+  shell.show('#flight');
+  assert.equal(node('assembly-page').hidden,true);
+  assert.equal(node('flight-page').hidden,false);
+  assert.equal(assemblyNav['aria-current'],undefined);
+  assert.deepEqual(seen,['show','assembly','suspend','flight']);
 });
 
 test('Firmware read uses native group 125 and ignores a response from the previous connection',async t=>{

@@ -1,0 +1,9 @@
+F450 assembly and wiring learning bench
+
+Adapted from DroneLab by ZEBJUS
+https://github.com/chilchiltrips-boop/dronelab/tree/0101b6d77ed9750633baf991664f8fce274da8f6
+
+The local GLB loader, component models, thumbnails, PCB illustration and original
+assembly/wiring components come from the ZEBJUS Assembly Wiring UI Kit, as
+identified in DroneLab's THIRD-PARTY-NOTICES.md. Their original rights apply.
+Three.js r170 is distributed under the MIT license in THREE-LICENSE.txt.

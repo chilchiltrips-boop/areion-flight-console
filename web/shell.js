@@ -1,6 +1,7 @@
 const get = id => document.getElementById(id);
-const titles = {welcome:'Welcome', flight:'Flight Data',record:'Recordings',configuration:'Configuration',system:'System',scopes:'Scopes',firmware:'Firmware'};
+const titles = {welcome:'Welcome', assembly:'Assembly',flight:'Flight Data',record:'Recordings',configuration:'Configuration',system:'System',scopes:'Scopes',firmware:'Firmware'};
 const loaders = {
+  assembly: () => import('./assembly/page.js'),
   configuration: () => import('./configuration.js'),
   system: () => import('./system.js'),
   scopes: () => import('./scopes.js'),
@@ -54,7 +55,7 @@ export class ConsoleShell {
     document.body.dataset.page=page;
     for(const key of Object.keys(titles))get(key+'-page').hidden=key!==page;
     document.querySelectorAll('.mast .nav[data-route]').forEach(btn=>mark(btn,btn.dataset.route===(page==='record'?'flight':page)));
-    get('workspace-heading').hidden=['welcome','flight','configuration','system','scopes'].includes(page);
+    get('workspace-heading').hidden=['welcome','assembly','flight','configuration','system','scopes'].includes(page);
     get('flight-subnav').hidden=page!=='record';
     mark(get('live-tab'),page==='flight');mark(get('record-tab'),page==='record');
     write('page-title',titles[page]);
