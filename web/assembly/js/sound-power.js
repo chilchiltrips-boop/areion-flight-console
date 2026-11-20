@@ -142,14 +142,13 @@ ctx.setPowerVisual = function setPowerVisual(on,instant=false){
  ctx.state.powered=!!on;ctx.state.powerStage=on?(instant?3:0):0;
  for(let i=0;i<4;i++)ctx.setEscLed(i,on&&instant);
  ctx.setFcLeds(on&&instant,on&&instant,on&&instant);
- if(!on&&ctx.powerPulseRoot){ctx.powerPulseRoot.clear();ctx.powerPulseItems=[]}
- ctx.rebuildPowerPulses();ctx.updatePowerUi()
+ ctx.updatePowerUi()
 };
 
 ctx.runPowerUpSequence = function runPowerUpSequence(){
  const token=++ctx.powerSequenceToken;ctx.state.powered=true;ctx.state.powerStage=1;
  for(let i=0;i<4;i++)ctx.setEscLed(i,false);
- ctx.setFcLeds(true,false,false);ctx.rebuildPowerPulses();ctx.updatePowerUi();ctx.escStartupTune();
+ ctx.setFcLeds(true,false,false);ctx.updatePowerUi();ctx.escStartupTune();
  [0,1,2,3].forEach(i=>setTimeout(()=>{if(token!==ctx.powerSequenceToken||!ctx.state.powered)return;ctx.setEscLed(i,true);ctx.escBeep(i)},245+i*155));
  setTimeout(()=>{if(token!==ctx.powerSequenceToken||!ctx.state.powered)return;ctx.state.powerStage=2;ctx.setFcLeds(true,true,false);ctx.tone(590,.08,'triangle',.020);ctx.updatePowerUi();ctx.notify('FC PWR LED ON • RGB RED • gyro booting…')},930);
  setTimeout(()=>{if(token!==ctx.powerSequenceToken||!ctx.state.powered)return;ctx.setFcLeds(true,false,false);ctx.tone(700,.060,'sine',.014);ctx.notify('Gyro initialised • checking control / receiver…')},1160);

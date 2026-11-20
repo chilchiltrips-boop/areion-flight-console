@@ -28,13 +28,9 @@ ctx.labelsRoot = undefined;
 
 ctx.solderRoot = undefined;
 
-ctx.powerPulseRoot = undefined;
-
 ctx.snapPreview = undefined;
 
 ctx.animations = [];
-
-ctx.powerPulseItems = [];
 
 ctx.runtimeFps = 0;
 
@@ -294,14 +290,6 @@ ctx.decoratePart = function decoratePart(g,type,id){
  return g
 };
 
-ctx.rememberMaterialVisual = function rememberMaterialVisual(material){
- const mats=Array.isArray(material)?material:[material];mats.filter(Boolean).forEach(m=>{if(m.userData.zjVisualBase)return;m.userData.zjVisualBase={opacity:m.opacity,transparent:m.transparent,depthWrite:m.depthWrite}})
-};
-
-ctx.setMaterialFade = function setMaterialFade(material,factor=1){
- const mats=Array.isArray(material)?material:[material];mats.filter(Boolean).forEach(m=>{ctx.rememberMaterialVisual(m);const b=m.userData.zjVisualBase;m.opacity=b.opacity*factor;m.transparent=factor<1||b.transparent;m.depthWrite=factor<1?false:b.depthWrite})
-};
-
 ctx.normalizeComponentPalette = function normalizeComponentPalette(g,type){
  const tint={armRed:new ctx.THREE.Color(0xcb5159),armWhite:new ctx.THREE.Color(0xe9eef2),guard:new ctx.THREE.Color(0xf2f5f6)}[type];
  if(!tint)return g;
@@ -310,7 +298,7 @@ ctx.normalizeComponentPalette = function normalizeComponentPalette(g,type){
 };
 
 ctx.createPart = function createPart(type,id){
- const c=ctx.product(type);let path=c?.asset;if(type==='guard'||type==='prop')path=null;else if(type==='prop'&&(id==='M2'||id==='M4'))path=c.assetCCW;const a=path?ctx.cloneAsset(path):null;const g=ctx.normalizeComponentPalette(ctx.decoratePart(a||ctx.procedural(type,id),type,id),type);g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;ctx.rememberMaterialVisual(o.material);ctx.tag(o,{partRoot:g})}});return g
+ const c=ctx.product(type);let path=c?.asset;if(type==='guard'||type==='prop')path=null;else if(type==='prop'&&(id==='M2'||id==='M4'))path=c.assetCCW;const a=path?ctx.cloneAsset(path):null;const g=ctx.normalizeComponentPalette(ctx.decoratePart(a||ctx.procedural(type,id),type,id),type);g.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;ctx.tag(o,{partRoot:g})}});return g
 };
 
 ctx.init3D = function init3D(){
@@ -346,11 +334,23 @@ ctx.init3D = function init3D(){
  [1.25,2.5,3.75,5.0,6.15].forEach(r=>{const ring=new ctx.THREE.Mesh(new ctx.THREE.TorusGeometry(r,.012,6,96),new ctx.THREE.MeshBasicMaterial({color:0x3b6072,transparent:true,opacity:.46}));ring.rotation.x=Math.PI/2;ring.position.y=.041;ctx.scene.add(ring)});
  for(let a=0;a<Math.PI*2;a+=Math.PI/8){const geo=new ctx.THREE.BufferGeometry().setFromPoints([new ctx.THREE.Vector3(0,.042,0),new ctx.THREE.Vector3(Math.cos(a)*6.2,.042,Math.sin(a)*6.2)]);ctx.scene.add(new ctx.THREE.Line(geo,new ctx.THREE.LineBasicMaterial({color:0x2f4e5e,transparent:true,opacity:.32})))}
  ctx.snapPreview=new ctx.THREE.Mesh(new ctx.THREE.RingGeometry(.28,.42,36),new ctx.THREE.MeshBasicMaterial({color:ctx.C.green,transparent:true,opacity:.85,side:ctx.THREE.DoubleSide,depthWrite:false}));ctx.snapPreview.rotation.x=-Math.PI/2;ctx.snapPreview.visible=false;ctx.snapPreview.userData.snapPreview=true;ctx.scene.add(ctx.snapPreview);
- ctx.partsRoot=new ctx.THREE.Group();ctx.wiresRoot=new ctx.THREE.Group();ctx.guidesRoot=new ctx.THREE.Group();ctx.extrasRoot=new ctx.THREE.Group();ctx.labelsRoot=new ctx.THREE.Group();ctx.solderRoot=new ctx.THREE.Group();ctx.powerPulseRoot=new ctx.THREE.Group();
- [ctx.partsRoot,ctx.wiresRoot,ctx.guidesRoot,ctx.extrasRoot,ctx.labelsRoot,ctx.solderRoot,ctx.powerPulseRoot].forEach(g=>g.position.y=0);ctx.scene.add(ctx.partsRoot,ctx.wiresRoot,ctx.guidesRoot,ctx.extrasRoot,ctx.labelsRoot,ctx.solderRoot,ctx.powerPulseRoot);
+ ctx.partsRoot=new ctx.THREE.Group();ctx.wiresRoot=new ctx.THREE.Group();ctx.guidesRoot=new ctx.THREE.Group();ctx.extrasRoot=new ctx.THREE.Group();ctx.labelsRoot=new ctx.THREE.Group();ctx.solderRoot=new ctx.THREE.Group();
+ [ctx.partsRoot,ctx.wiresRoot,ctx.guidesRoot,ctx.extrasRoot,ctx.labelsRoot,ctx.solderRoot].forEach(g=>g.position.y=0);ctx.scene.add(ctx.partsRoot,ctx.wiresRoot,ctx.guidesRoot,ctx.extrasRoot,ctx.labelsRoot,ctx.solderRoot);
  ctx.ray=new ctx.THREE.Raycaster();ctx.mouse=new ctx.THREE.Vector2();
- ctx.renderer.domElement.addEventListener('pointerdown',ctx.down);ctx.renderer.domElement.addEventListener('pointermove',ctx.move);ctx.renderer.domElement.addEventListener('pointerup',()=>{ctx.dragging=null;ctx.controls.enabled=true});
- ctx.renderer.domElement.addEventListener('dragover',x=>x.preventDefault());ctx.renderer.domElement.addEventListener('drop',x=>{x.preventDefault();const t=x.dataTransfer.getData('text/plain')||ctx.state.selectedType;if(t){ctx.state.selectedType=t;ctx.placePointer(x)}});
+ const canvas = ctx.renderer.domElement;
+ canvas.addEventListener('pointerdown', ctx.down);
+ canvas.addEventListener('pointermove', ctx.move);
+ canvas.addEventListener('pointerup', ctx.up);
+ canvas.addEventListener('pointercancel', () => { ctx.placementTap = null; });
+ canvas.addEventListener('dragover', event => {
+   event.preventDefault();
+   if (ctx.state.selectedType) ctx.previewPlacement(event);
+ });
+ canvas.addEventListener('drop', event => {
+   event.preventDefault();
+   const type = event.dataTransfer.getData('text/plain');
+   if (type && type === ctx.state.selectedType) ctx.placeSelected(event);
+ });
  window.addEventListener('resize',ctx.resize3D);requestAnimationFrame(ctx.loop3D)
 };
 
@@ -361,9 +361,14 @@ ctx.hitBench = function hitBench(e){ctx.ndc(e);ctx.ray.setFromCamera(ctx.mouse,c
 ctx.rootOf = function rootOf(o){while(o){if(o.userData?.partRoot)return o.userData.partRoot;o=o.parent}return null};
 
 ctx.down = function down(e){
- // When a shelf component is selected, a click anywhere on the workbench/assembled drone means PLACE.
- // This fixes ESC/guard/motor placement on top of an existing arm or plate.
- if(ctx.state.selectedType){ctx.placePointer(e);return}
+ if (e.button !== 0 || e.isPrimary === false) {
+   ctx.placementTap = null;
+   return;
+ }
+ if (ctx.state.selectedType) {
+   ctx.placementTap = {id:e.pointerId, type:ctx.state.selectedType, x:e.clientX, y:e.clientY};
+   return;
+ }
  ctx.ndc(e);ctx.ray.setFromCamera(ctx.mouse,ctx.camera);const h=ctx.ray.intersectObjects([ctx.partsRoot,ctx.wiresRoot,ctx.extrasRoot,ctx.solderRoot],true);
  if(h.length){
    const o=h[0].object;
@@ -376,49 +381,129 @@ ctx.down = function down(e){
 
 ctx.snapRadius = function snapRadius(type){const base=({bottomPlate:120,topPlate:110,battery:120,armRed:115,armWhite:115,guard:125,motor:105,esc:115,fcTape:95,fc:95,prop:115,receiver:100,gps:105,servo:100,matrix:100,sensor:100,led:95}[type]??105),r=ctx.renderer?.domElement?.getBoundingClientRect?.();return base*ctx.clamp(Math.min(r?.width||800,r?.height||800)/800,.85,1.35)};
 
-ctx.pointerCanvasPoint = function pointerCanvasPoint(e){const r=ctx.renderer.domElement.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top,w:r.width,h:r.height}};
+// Pointer coordinates are CSS pixels for both WebGL and the software renderer.
+function nearestMount(free, event) {
+ const rect = ctx.renderer.domElement.getBoundingClientRect();
+ const x = event.clientX - rect.left, y = event.clientY - rect.top;
+ ctx.camera.updateMatrixWorld();
+ let nearest = null, distance = Infinity;
+ const point = new ctx.THREE.Vector3();
+ for (const slot of free) {
+   point.fromArray(slot.p).project(ctx.camera);
+   if (point.z < -1 || point.z > 1) continue;
+   const dx = (point.x + 1) * rect.width / 2 - x;
+   const dy = (1 - point.y) * rect.height / 2 - y;
+   const pixels = Math.hypot(dx, dy);
+   if (pixels < distance) {
+     nearest = slot;
+     distance = pixels;
+   }
+ }
+ return {slot:nearest, distance};
+}
 
-ctx.projectSlotToScreen = function projectSlotToScreen(slot){const r=ctx.renderer.domElement.getBoundingClientRect(),v=new ctx.THREE.Vector3(slot.p[0],slot.p[1],slot.p[2]).project(ctx.camera);return{x:(v.x*.5+.5)*r.width,y:(-.5*v.y+.5)*r.height,z:v.z,visible:v.z>=-1&&v.z<=1}};
-
-ctx.nearestFreeSlotScreen = function nearestFreeSlotScreen(type,e){
- const used=new Set(ctx.state.parts.filter(x=>x.type===type).map(x=>x.slotId)),free=(ctx.slots[type]||[]).filter(s=>!used.has(s.id));if(!free.length)return null;
- const p=ctx.pointerCanvasPoint(e);return free.map(s=>{const q=ctx.projectSlotToScreen(s);return{s,d:Math.hypot(q.x-p.x,q.y-p.y),screen:q}}).filter(x=>x.screen.visible).sort((a,b)=>a.d-b.d)[0]||null
-};
+function placementTarget(type, event) {
+ const occupied = new Set(ctx.state.parts.filter(part => part.type === type).map(part => part.slotId));
+ const free = (ctx.slots[type] || []).filter(slot => !occupied.has(slot.id));
+ if (!free.length) return {slot:null, ready:false};
+ if (!event) return {slot:free[0], ready:true};
+ const {slot, distance} = nearestMount(free, event);
+ if (ctx.state.guided) return {slot:slot || free[0], ready:true};
+ return {slot, ready:Boolean(slot && distance <= ctx.snapRadius(type))};
+}
 
 ctx.updateThreeTooltip = function updateThreeTooltip(e){
  const tip=ctx.$('#threeTooltip');if(!tip||!ctx.renderer||!ctx.ray)return;ctx.ndc(e);ctx.ray.setFromCamera(ctx.mouse,ctx.camera);const h=ctx.ray.intersectObjects([ctx.partsRoot,ctx.wiresRoot,ctx.extrasRoot,ctx.solderRoot],true)[0],info=h?.object?.userData?.info;
  if(info){tip.innerHTML=`<b>${info.title}</b><span>${info.detail||''}</span>`;tip.style.left=(e.offsetX+16)+'px';tip.style.top=(e.offsetY+16)+'px';tip.classList.add('show')}else tip.classList.remove('show')
 };
 
-ctx.move = function move(e){
- ctx.updateThreeTooltip(e);
- if(!ctx.state.selectedType||!ctx.snapPreview)return;
- const n=ctx.nearestFreeSlotScreen(ctx.state.selectedType,e);if(!n){ctx.snapPreview.visible=false;return}
- const ready=n.d<=ctx.snapRadius(ctx.state.selectedType);ctx.snapPreview.visible=true;ctx.snapPreview.position.set(n.s.p[0],n.s.p[1]+.05,n.s.p[2]);ctx.snapPreview.material.color.setHex(ready?0x53efbd:0xff5d68);
- const msg=ctx.$('#snapMessage');if(msg){msg.textContent=ready?`✓ Magnetic snap ready: ${n.s.id}`:`Move closer to target ${n.s.id}`;msg.className='snap-message '+(ready?'good':'bad')}
+function placementRestriction(product) {
+ if (ctx.state.guided && !product.optional && !ctx.steps[ctx.state.step].types.includes(product.type)) {
+   return 'Select a component for the current step.';
+ }
+ if (product.optional && !ctx.state.parts.some(part => part.type === 'fc')) {
+   return 'Mount Areion FC A1 to unlock the virtual expansion devices.';
+ }
+ return '';
+}
+
+ctx.previewPlacement = function previewPlacement(event) {
+ const type = ctx.state.selectedType, product = ctx.product(type);
+ if (!ctx.snapPreview) return;
+ if (!product || product.internal || placementRestriction(product)) {
+   ctx.snapPreview.visible = false;
+   return;
+ }
+ const target = placementTarget(type, event), slot = target.slot;
+ const ready = target.ready || type === 'frameScrew' || type === 'motorScrew';
+ ctx.snapPreview.visible = Boolean(slot);
+ if (!slot) return;
+ ctx.snapPreview.position.set(slot.p[0], slot.p[1] + .05, slot.p[2]);
+ ctx.snapPreview.material.color.setHex(ready ? 0x53efbd : 0xff5d68);
+ const message = ctx.$('#snapMessage');
+ if (message) {
+   const text = ready ? `Snap to ${slot.id}` : `Move closer to target ${slot.id}`;
+   if (message.textContent !== text) {
+     message.textContent = text;
+     message.className = 'snap-message ' + (ready ? 'good' : 'bad');
+   }
+ }
 };
 
-ctx.findSlot = function findSlot(type,e){const n=ctx.nearestFreeSlotScreen(type,e);return n?.s||null};
+ctx.move = function move(event) {
+ const tap = ctx.placementTap;
+ if (tap && tap.id === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 5) {
+   ctx.placementTap = null;
+ }
+ if (ctx.state.selectedType) ctx.previewPlacement(event);
+ else ctx.updateThreeTooltip(event);
+};
 
-ctx.placePointer = function placePointer(e){
- const type=ctx.state.selectedType,c=ctx.product(type);if(!c)return;
- if(ctx.state.guided&&!ctx.product(type)?.optional&&!ctx.steps[ctx.state.step].types.includes(type)){ctx.notify('Current guided step needs a different item.','bad');return}
- if(ctx.product(type)?.optional&&!ctx.state.parts.some(p=>p.type==='fc')){ctx.notify('Mount Areion FC A1 to unlock the virtual expansion devices.','bad');return}
- if(type==='frameScrew'||type==='motorScrew'){ctx.installFastenerSet(type);return}
- const near=ctx.nearestFreeSlotScreen(type,e),s=near?.s;if(!s){ctx.notify('No visible free snap point in this view.','bad');return}
- if(near.d>ctx.snapRadius(type)){ctx.notify(`Move closer to the highlighted ${s.id} snap target.`,'bad');return}
- ctx.historyPush();ctx.install(type,s,true);ctx.state.selectedType=null;if(ctx.snapPreview)ctx.snapPreview.visible=false;ctx.renderAssemblyUI();ctx.showGuides();
- setTimeout(()=>ctx.advanceGuidedStepIfReady('assembly'),220)
+ctx.up = function up(event) {
+ const tap = ctx.placementTap;
+ ctx.placementTap = null;
+ if (!tap || tap.id !== event.pointerId || tap.type !== ctx.state.selectedType) return;
+ if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) <= 5) ctx.placeSelected(event);
+};
+
+ctx.placeSelected = function placeSelected(event) {
+ const type = ctx.state.selectedType, product = ctx.product(type);
+ if (!product || product.internal) return;
+ const reason = placementRestriction(product);
+ if (reason) {
+   ctx.notify(reason, 'bad');
+   return;
+ }
+ if (type === 'frameScrew' || type === 'motorScrew') {
+   if (ctx.snapPreview) ctx.snapPreview.visible = false;
+   ctx.installFastenerSet(type);
+   return;
+ }
+ const {slot, ready} = placementTarget(type, event);
+ if (!slot) {
+   ctx.notify('No available mount in this view.', 'bad');
+   return;
+ }
+ if (!ready) {
+   ctx.notify(`Move closer to the highlighted ${slot.id} snap target.`, 'bad');
+   return;
+ }
+ ctx.historyPush();
+ ctx.install(type, slot, true);
+ ctx.state.selectedType = null;
+ if (ctx.snapPreview) ctx.snapPreview.visible = false;
+ ctx.renderAssemblyUI();
+ ctx.showGuides();
+ ctx.advanceGuidedStepIfReady('assembly');
 };
 
 ctx.install = function install(type,s,animate=true){
  const o=ctx.createPart(type,s.id),id=`${type}-${s.id}`;o.position.set(...s.p);o.rotation.y=s.r||0;ctx.tag(o,{partRoot:o});ctx.partsRoot.add(o);ctx.state.parts.push({type,slotId:s.id,id,obj:o});
  if(type==='esc')ctx.addEscStrap(s,id);
  if(type==='frameScrew'||type==='motorScrew')ctx.animateScrew(o,s,animate,0);
- if(type==='battery'){if(animate){const target=new ctx.THREE.Vector3(...s.p);o.position.set(s.p[0]+2.5,s.p[1]+.08,s.p[2]);ctx.animations.push({type:'batterySlide',obj:o,target});}ctx.ensureBatteryStraps(animate);}if(type==='fc'&&ctx.state.fcCaseXray)setTimeout(ctx.applyFcCaseXray,0);
+ if(type==='battery'){if(animate){const target=new ctx.THREE.Vector3(...s.p);o.position.set(s.p[0]+2.5,s.p[1]+.08,s.p[2]);ctx.animations.push({type:'batterySlide',obj:o,target});}ctx.ensureBatteryStraps(animate);}
  const snd={bottomPlate:'plate',topPlate:'plate',armRed:'arm',armWhite:'arm',guard:'guard',motor:'motor',esc:'esc',fcTape:'tape',fc:'fc',battery:'battery',prop:'prop'}[type];if(snd&&!ctx.history.restoring)ctx.playFX(snd);
  if(['receiver','gps','servo','matrix','sensor','led'].includes(type)){const bench=ctx.optionalBenchType?.(type);if(bench)ctx.ensureOptionalWireNode(bench,s.id)}
- if(ctx.state.xray)ctx.applyFrameXray();else if(type==='fc'&&ctx.state.fcCaseXray)ctx.applyFcCaseXray();
  ctx.rebuild3DWires();ctx.rebuildSolder();if(['receiver','gps','servo','matrix','sensor','led'].includes(type))ctx.render2D?.();if(!ctx.history.restoring)ctx.notify(`${ctx.product(type).name} snapped and locked at ${s.id}.`)
 };
 
@@ -460,7 +545,6 @@ ctx.installFastenerSet = function installFastenerSet(type){
    const delay=frame?(i*.20):(i*.18);
    ctx.animateScrew(o,s,true,delay)
  });
- if(ctx.state.xray)ctx.applyFrameXray();
  ctx.state.selectedType=null;ctx.renderAssemblyUI();ctx.showGuides();ctx.rebuild3DWires();ctx.rebuildSolder();
  const qty=free.length;ctx.notify(`${qty} ${frame?'frame':'motor'} screws auto-positioned — tightening sequence started.`);
  setTimeout(()=>{if(token!==ctx.fastenerSequenceToken)return;ctx.$('#threeWrap').classList.remove('fastener-active');ctx.notify(`${qty} screws tightened and locked ✓`);ctx.advanceGuidedStepIfReady('assembly')},frame?4300:4700)
@@ -486,7 +570,7 @@ ctx.resize3D = function resize3D(){if(!ctx.renderer||!ctx.camera)return;const e=
 
 ctx.loop3D = function loop3D(t){
  requestAnimationFrame(loop3D);if(document.hidden||!ctx.$('#tab-assembly')?.classList.contains('active'))return;ctx.fpsFrames++;if(t-ctx.fpsLast>1000){ctx.runtimeFps=Math.round(ctx.fpsFrames*1000/(t-ctx.fpsLast));ctx.fpsFrames=0;ctx.fpsLast=t;}
- ctx.controls.autoRotate=ctx.state.autoRotate;ctx.controls.update();
+ ctx.controls.update();
  // Keep the target visibly lit at rest on software-rendered benches. Animating
  // the guide alone would repaint every triangle of a stationary finished kit.
  if(!ctx.renderer.isCanvasRenderer){
@@ -503,8 +587,8 @@ ctx.loop3D = function loop3D(t){
      if(lt>1.75){a.obj.position.y=a.targetY;a.obj.scale.setScalar(1);a.tool?.removeFromParent();ctx.animations.splice(i,1)}
    } else if(a.type==='fastenerFlash'){
      a.obj.material.opacity=Math.max(0,.9-lt*.68);a.obj.scale.setScalar(1+lt*2.2);if(lt>1.32){a.obj.removeFromParent();ctx.animations.splice(i,1)}
-   } else if(a.type==='plug'||a.type==='batteryPlug'){
-     a.obj.position.lerp(a.target,a.type==='batteryPlug'?.09:.115);
+   } else if(a.type==='batteryPlug'){
+     a.obj.position.lerp(a.target,.09);
      if(a.obj.position.distanceTo(a.target)<.028){if(a.removeAtEnd)a.obj.removeFromParent();ctx.animations.splice(i,1)}
    } else if(a.type==='batterySlide'){
      a.obj.position.lerp(a.target,.075);if(a.obj.position.distanceTo(a.target)<.025){a.obj.position.copy(a.target);ctx.animations.splice(i,1);ctx.playFX('battery')}
@@ -518,9 +602,7 @@ ctx.loop3D = function loop3D(t){
    }
  }
  if(ctx.state.powered&&ctx.state.powerStage>=3){ctx.state.parts.filter(p=>p.type==='prop').forEach(p=>{p.obj.rotation.y+=(p.slotId==='M1'||p.slotId==='M3'?-.014:.014)});ctx.silenceMotorAudio('assembly');if(Math.floor(t/600)!==Math.floor((t-35)/600))ctx.setFcLeds(true,true,true)}else ctx.silenceMotorAudio('assembly');
- if(ctx.state.wireMap||ctx.state.xray||ctx.state.powered)ctx.powerPulseItems.forEach(x=>{x.phase=(x.phase+x.speed*.016)%1;x.mesh.position.copy(x.curve.getPointAt(x.phase))});
- ctx.wiresRoot.visible=ctx.state.connections.length>0||ctx.state.wireMap||ctx.state.xray;
- if(ctx.powerPulseRoot)ctx.powerPulseRoot.visible=ctx.state.wireMap||ctx.state.xray||ctx.state.powered;
+ ctx.wiresRoot.visible=ctx.state.connections.length>0;
  ctx.renderer.render(ctx.scene,ctx.camera)
 };
 
@@ -531,20 +613,12 @@ ctx.setView = function setView(v){
  if(v==='front')ctx.camera.position.set(0,4.2,15.8);
  ctx.controls.target.set(0,.58,0);ctx.controls._syncFromCamera();
  const active={'3d':'view3dBtn',top:'topBtn',front:'frontBtn'}[v];
- ['view3dBtn','topBtn','frontBtn'].forEach(id=>ctx.$('#'+id)?.classList.toggle('active',id===active))
+ for (const id of ['view3dBtn','topBtn','frontBtn']) {
+   const button = ctx.$('#' + id);
+   button.classList.toggle('active', id === active);
+   button.setAttribute('aria-pressed', String(id === active));
+ }
 };
-
-ctx.applyFrameXray = function applyFrameXray(){
- if(!ctx.partsRoot)return;ctx.partsRoot.traverse(o=>{if(o.isMesh&&o.material)ctx.setMaterialFade(o.material,ctx.state.xray?.36:1)});if(ctx.state.fcCaseXray)ctx.applyFcCaseXray();
-};
-
-ctx.applyFcCaseXray = function applyFcCaseXray(){
- const fc=ctx.state.parts.find(p=>p.type==='fc')?.obj;if(!fc)return;
- const frameFactor=ctx.state.xray?.36:1;
- fc.traverse(o=>{if(!o.isMesh||!o.material)return;const keep=o.name==='FC_MALE_PIN'||o.name==='HEADER_COLLAR'||o.name.startsWith('FC_RGB'),factor=(!keep&&ctx.state.fcCaseXray)?.24:frameFactor;ctx.setMaterialFade(o.material,factor)})
-};
-
-ctx.setWireMap = function setWireMap(on){ctx.state.wireMap=on;ctx.$('#wireMapBtn')?.classList.toggle('active',on);ctx.$('#objectViewBtn')?.classList.toggle('active',!on);ctx.$('#wireLegend')?.classList.toggle('hidden',!on);ctx.rebuild3DWires()};
 
 ctx.toggleExplode = function toggleExplode(){ctx.state.exploded=!ctx.state.exploded;ctx.$('#explodeBtn').classList.toggle('active',ctx.state.exploded);ctx.state.parts.forEach((p,i)=>{const s=ctx.slots[p.type]?.find(x=>x.id===p.slotId);if(!s)return;p.obj.position.set(s.p[0]*(ctx.state.exploded?1.15:1),s.p[1]+(ctx.state.exploded?.35+(i%5)*.15:0),s.p[2]*(ctx.state.exploded?1.15:1))});ctx.rebuild3DWires()};
 
@@ -637,37 +711,6 @@ ctx.rebuild3DWires = function rebuild3DWires(){
    if(phase){const metal=new ctx.THREE.MeshStandardMaterial({color:0xd7a63c,metalness:.78,roughness:.22});[pts[0],pts[pts.length-1]].forEach(pt=>{const plug=new ctx.THREE.Mesh(new ctx.THREE.SphereGeometry(.050,12,8),metal);plug.position.copy(pt);plug.castShadow=true;ctx.wiresRoot.add(plug)})}
    if(c.new){w.material.emissive=new ctx.THREE.Color(ctx.C.green);w.material.emissiveIntensity=1.8}
  });
- ctx.rebuildPowerPulses();
-};
-
-ctx.rebuildPowerPulses = function rebuildPowerPulses(){
- if(!ctx.powerPulseRoot)return;ctx.powerPulseRoot.clear();ctx.powerPulseItems=[];
- if(!ctx.state.powered)return;
- ctx.state.connections.forEach(c=>{
-   if(!(/BAT\.|PDB\.E|PWR/.test(c.from+c.to)))return;
-   const pts=ctx.routePoints(c);if(!pts||pts.length<2)return;const curve=new ctx.THREE.CatmullRomCurve3(pts);
-   for(let j=0;j<3;j++){
-     const m=new ctx.THREE.Mesh(new ctx.THREE.SphereGeometry(.043,12,9),new ctx.THREE.MeshBasicMaterial({color:ctx.wColor(c.from),transparent:true,opacity:.96}));
-     ctx.powerPulseRoot.add(m);ctx.powerPulseItems.push({mesh:m,curve,phase:j/3,speed:.13+Math.random()*.035})
-   }
- })
-};
-
-ctx.animatePlug = function animatePlug(from,to){
- if(from.startsWith('OPT')||to.startsWith('OPT'))return;
- const fcKey=from.startsWith('FC.ESC')?from:(to.startsWith('FC.ESC')?to:null);
- if(fcKey){
-   if(!fcKey.endsWith('-S'))return;
-   const escNum=+(fcKey.match(/ESC(\d)/)?.[1]||1),b=ctx.endpoint(fcKey),g=new ctx.THREE.Group();
-   ctx.B(.19,.17,.40,ctx.mat(0x172027,.06,.75),[0,0,-.15],g);
-   [0,-.15,-.30].forEach(z=>{const s=ctx.CY(.027,.075,ctx.mat(0x020405,.0,.92),[0,-.04,z],g);s.name='FEMALE_SOCKET'});
-   g.position.copy(b.clone().add(new ctx.THREE.Vector3(0,.86,0)));ctx.extrasRoot.add(g);
-   g.userData.ownerPartId=`esc-fc-plug-${escNum}`;
-   ctx.animations.push({type:'plug',obj:g,target:b.clone().add(new ctx.THREE.Vector3(0,.12,0)),removeAtEnd:false});
-   ctx.playFX('connector');ctx.notify(`ESC${escNum} female 3-pin plug moving from above onto FC ESC${escNum} male header`);
-   return
- }
- const a=ctx.endpoint(from),b=ctx.endpoint(to),g=new ctx.THREE.Group();ctx.B(.14,.09,.18,ctx.mat(0x35424c),[0,0,0],g);g.position.copy(a);ctx.extrasRoot.add(g);ctx.animations.push({type:'plug',obj:g,target:b.clone(),removeAtEnd:true});ctx.playFX('connector')
 };
 
 ctx.rebuildSolder = function rebuildSolder(){
@@ -675,17 +718,6 @@ ctx.rebuildSolder = function rebuildSolder(){
  const blob=p=>{const m=new ctx.THREE.Mesh(new ctx.THREE.SphereGeometry(.085,18,12),new ctx.THREE.MeshStandardMaterial({color:0xd7dde1,metalness:.9,roughness:.18}));m.scale.y=.34;m.position.set(...p);ctx.solderRoot.add(m)};
  if(ctx.state.doneActions.has('powerWire'))[[-.63,.84,.73],[-.88,.84,.73],[.95,.84,.73],[.95,.84,.48],[.95,.84,-.48],[.95,.84,-.73],[-.63,.84,-.73],[-.88,.84,-.73]].forEach(blob);
  if(ctx.state.doneActions.has('xt60'))[[-1.18,.84,.14],[-1.18,.84,-.14]].forEach(blob)
-};
-
-ctx.addGroup = function addGroup(g){
- const groups={motor:ctx.referenceWires().filter(([a])=>/ESC\d\.[UVW]/.test(a)),power:ctx.referenceWires().filter(([a,b])=>a.startsWith('PDB.E')&&b.includes('PWR')),escfc:ctx.referenceWires().filter(([a,b])=>a.startsWith('ESC')&&(/SIG|5V|GND/.test(a))&&b.startsWith('FC.ESC')),xt60:ctx.referenceWires().filter(([a])=>a.startsWith('BAT.')),rx:ctx.referenceWires().filter(([a])=>a.startsWith('RX.'))};const arr=groups[g]||[];arr.forEach(([from,to],i)=>{if(!ctx.state.connections.some(c=>c.from===from&&c.to===to))ctx.state.connections.push({from,to,new:true});if(g!=='escfc'||from.endsWith('.SIG'))setTimeout(()=>ctx.animatePlug(from,to),i*80)});setTimeout(()=>ctx.state.connections.forEach(c=>c.new=false),1400);ctx.render2D();ctx.rebuild3DWires();ctx.rebuildSolder()
-};
-
-ctx.previewWiringAction = function previewWiringAction(s){
- const groups={motorWire:ctx.referenceWires().filter(([a])=>/ESC\d\.[UVW]/.test(a)),powerWire:ctx.referenceWires().filter(([a,b])=>a.startsWith('PDB.E')&&b.includes('PWR')),escFc:ctx.referenceWires().filter(([a,b])=>a.startsWith('ESC')&&(/SIG|5V|GND/.test(a))&&b.startsWith('FC.ESC')),xt60:ctx.referenceWires().filter(([a])=>a.startsWith('BAT.'))};
- const arr=groups[s.id]||[];if(!ctx.wiringPrerequisitesReady(s.id)){ctx.notify('Install the required physical components first, then use the 2D Wiring page.','bad');return}
- arr.forEach(([from,to],i)=>setTimeout(()=>ctx.animatePlug(from,to),i*85));
- ctx.notify('Preview only • no assembly progress was changed. Draw these connections in 2D Wiring.','good')
 };
 
 ctx.performAction = function performAction(s){

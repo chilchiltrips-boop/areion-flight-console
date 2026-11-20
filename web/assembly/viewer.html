@@ -35,38 +35,37 @@
         <div class="step-actions"><button id="prevStepBtn" class="btn ghost">Previous</button><button id="nextStepBtn" class="btn primary">Next</button></div>
       </aside>
       <section class="center-stage" aria-label="Assembly workbench">
-        <div class="stage-toolbar">
-          <div class="view-switch" aria-label="Model views">
-            <button class="view-btn active" id="objectViewBtn">Object</button><button class="view-btn" id="wireMapBtn">Wiring map</button>
-            <button class="view-btn" id="xrayBtn">Frame X-ray</button><button class="view-btn" id="fcCaseXrayBtn">FC X-ray</button>
-          </div>
-          <div class="camera-actions" aria-label="Camera and animation">
-            <button class="view-btn active" id="view3dBtn">3D</button><button class="view-btn" id="topBtn">Top</button>
-            <button class="view-btn" id="frontBtn">Front</button><button class="view-btn" id="explodeBtn">Exploded</button>
-            <button class="view-btn" id="autoRotateBtn">Auto rotate</button>
-          </div>
+        <div class="stage-toolbar" role="group" aria-label="Model view">
+          <button id="view3dBtn" class="active" aria-pressed="true">3D</button>
+          <button id="topBtn" aria-pressed="false">Top</button>
+          <button id="frontBtn" aria-pressed="false">Front</button>
+          <button id="explodeBtn" aria-pressed="false">Exploded</button>
         </div>
         <div class="three-wrap" id="threeWrap">
           <div id="threeContainer" role="group" aria-label="Interactive three-dimensional F450 workbench"></div>
           <div class="virtual-chip"><span>Virtual bench</span></div>
+          <div class="stage-preview-control" id="assemblyWiringPreviewBox" hidden>
+            <button id="assemblyWiringPreviewBtn" type="button" aria-pressed="false">Preview wiring</button>
+            <span id="assemblyWiringPreviewLabel"></span>
+          </div>
           <div class="three-tooltip" id="threeTooltip"></div>
-          <div class="wire-legend hidden" id="wireLegend"><b>Wiring map</b><span><i class="w red thick"></i>Battery +</span><span><i class="w ground-brown thick"></i>Ground</span><span><i class="w source"></i>PWM signal</span><span><i class="w pink"></i>5 V</span><span><i class="w phase-u"></i>Motor U</span><span><i class="w phase-v"></i>Motor V</span><span><i class="w phase-w"></i>Motor W</span></div>
           <div class="snap-message" id="snapMessage" role="status"></div>
-        </div>
-        <div class="stage-actions">
-          <button class="btn primary" id="snapPartBtn" disabled>Place selected part</button>
-          <button class="btn ghost" id="deletePartBtn" disabled>Remove selected part</button>
-          <span class="status" id="assetStatus" role="status">Loading models…</span>
+          <div class="stage-actions" role="group" aria-label="Selected part">
+            <button class="btn primary" id="snapPartBtn" aria-label="Place selected part" disabled>Place</button>
+            <button class="btn ghost" id="deletePartBtn" aria-label="Remove selected part" disabled>Remove</button>
+          </div>
         </div>
         <div class="stage-power">
           <button class="view-btn power-connect-btn" id="batteryConnectBtn">Connect battery</button><span class="status" id="batteryPowerState">Power off</span><span class="fc-led-state off" id="fcLedState">FC off</span>
           <button class="view-btn" id="soundBtn" aria-pressed="true">Sound on</button>
         </div>
-        <div class="stage-preview-control" id="assemblyWiringPreviewBox" hidden><button class="btn ghost" id="assemblyWiringPreviewBtn">Preview wiring</button><span id="assemblyWiringPreviewLabel"></span></div>
       </section>
       <aside class="right-panel right-workbench">
-        <section class="right-shelf-section"><header class="panel-head"><h2>Component shelf</h2></header>
-          <p class="shelf-note">Select a part, then click a highlighted mount or choose Place selected part.</p>
+        <section class="right-shelf-section"><header class="panel-head">
+          <h2>Component shelf</h2>
+          <span class="status" id="assetStatus" role="status">Loading models…</span>
+        </header>
+          <p class="shelf-note">Select a part, then tap its mount or choose Place.</p>
           <div class="component-shelf vertical-shelf" id="componentShelf"></div>
         </section>
       </aside>

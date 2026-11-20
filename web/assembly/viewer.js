@@ -6,13 +6,14 @@ import {register as models} from './js/model-assets.js';
 import {register as sound} from './js/sound-power.js';
 import {register as sharedUI} from './js/shared-ui.js';
 import {register as scene} from './js/assembly-scene.js';
+import {register as wiringPreview} from './js/wiring-preview.js';
 import {mountWiring} from './wiring.js';
 
 const ctx = {
   THREE, loadGLB,
   config: {storageKey: 'areion.fc-a1.assembly.v1', historyLimit: 60}
 };
-for (const register of [catalog, project, models, sound, sharedUI, scene]) register(ctx);
+for (const register of [catalog, project, models, sound, sharedUI, scene, wiringPreview]) register(ctx);
 const wiring = mountWiring(ctx, document.querySelector('#tab-wiring'));
 const {state} = ctx;
 const get = id => document.getElementById(id);
@@ -21,9 +22,7 @@ let ready = false;
 function updateControls() {
   for (const [id, pressed] of [
     ['guidedModeBtn', state.guided], ['freeModeBtn', !state.guided],
-    ['objectViewBtn', !state.wireMap], ['wireMapBtn', state.wireMap],
-    ['fcCaseXrayBtn', state.fcCaseXray], ['xrayBtn', state.xray],
-    ['explodeBtn', state.exploded], ['autoRotateBtn', state.autoRotate]
+    ['explodeBtn', state.exploded]
   ]) {
     const button = get(id);
     button.classList.toggle('active', pressed);
@@ -56,6 +55,7 @@ ctx.down = event => {
 };
 
 function changeView(name) {
+  ctx.stopWiringPreview();
   const assembly = name !== 'wiring';
   for (const el of document.querySelectorAll('[data-bench-view]')) {
     const selected = el.dataset.benchView === (assembly ? 'assembly' : 'wiring');
@@ -78,6 +78,7 @@ for (const el of document.querySelectorAll('[data-bench-view]')) {
 
 function setMode(guided) {
   if (state.guided === guided) return;
+  ctx.stopWiringPreview();
   ctx.historyPush();
   state.guided = guided;
   // Return from free build to the earliest outstanding requirement.
@@ -98,35 +99,12 @@ function moveStep(direction) {
   ctx.renderAssemblyUI();
   ctx.showGuides();
 }
-function placeSelected() {
-  const type = state.selectedType;
-  const product = ctx.product(type);
-  if (!ready || !product) return;
-  if (state.guided && !product.optional && !ctx.steps[state.step].types.includes(type)) return;
-  if (product.optional && !ctx.partQty('fc')) return;
-  if (type === 'motorScrew' || type === 'frameScrew') {
-    ctx.installFastenerSet(type);
-    return;
-  }
-  const slot = ctx.slots[type]?.find(slot => !ctx.installed(type,slot.id));
-  if (!slot) return;
-  ctx.historyPush();
-  ctx.install(type, slot, true);
-  state.selectedType = null;
-  if (ctx.snapPreview) ctx.snapPreview.visible = false;
-  ctx.renderAssemblyUI();
-  ctx.showGuides();
-  ctx.advanceGuidedStepIfReady('assembly');
-}
 const controls = {
   guidedModeBtn: () => setMode(true), freeModeBtn: () => setMode(false),
   prevStepBtn: () => moveStep(-1), nextStepBtn: () => moveStep(1),
-  snapPartBtn: placeSelected, deletePartBtn: () => ctx.deleteInstalled(state.selectedInstalledId),
+  snapPartBtn: () => ctx.placeSelected(), deletePartBtn: () => ctx.deleteInstalled(state.selectedInstalledId),
   undoBtn: ctx.undoAction, redoBtn: ctx.redoAction, resetBtn: ctx.resetProject,
-  objectViewBtn: () => ctx.setWireMap(false), wireMapBtn: () => ctx.setWireMap(true),
-  fcCaseXrayBtn: () => {state.fcCaseXray = !state.fcCaseXray; ctx.applyFcCaseXray();},
-  xrayBtn: () => {state.xray = !state.xray; ctx.applyFrameXray();},
-  explodeBtn: ctx.toggleExplode, autoRotateBtn: () => {state.autoRotate = !state.autoRotate;},
+  explodeBtn: () => {ctx.stopWiringPreview(); ctx.toggleExplode();},
   view3dBtn: () => ctx.setView('3d'), topBtn: () => ctx.setView('top'), frontBtn: () => ctx.setView('front'),
   batteryConnectBtn: ctx.toggleBatteryPower,
   soundBtn: () => {
@@ -159,6 +137,7 @@ window.addEventListener('keydown', e => {
       e.preventDefault();
       ctx.deleteInstalled(state.selectedInstalledId);
     } else if (key === 'escape') {
+      ctx.stopWiringPreview();
       state.selectedType = null;
       state.selectedInstalledId = null;
       if (ctx.snapPreview) ctx.snapPreview.visible = false;
@@ -169,6 +148,7 @@ window.addEventListener('keydown', e => {
 });
 function leaveBench() {
   if (!ready) return;
+  ctx.stopWiringPreview();
   ctx.saveProject();
   wiring.hide();
   ctx.stopTransientTones();

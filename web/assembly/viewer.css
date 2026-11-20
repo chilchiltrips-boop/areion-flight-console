@@ -39,8 +39,8 @@ button.active, button[aria-pressed="true"], .btn.primary {
 button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.primary:hover:enabled { background: #2a645d }
 .btn.danger { color: #ffbdc4; border-color: #87555f }
 .btn.small { font-size: .78rem; min-height: 30px }
-.bench-toolbar, .bench-history, .bench-view-tabs, .mode-row, .step-actions, .stage-actions, .panel-head,
-.view-switch, .camera-actions, .guided-wiring-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap }
+.bench-toolbar, .bench-history, .bench-view-tabs, .mode-row, .step-actions, .panel-head,
+.guided-wiring-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap }
 .bench-toolbar {
   padding: .65rem .85rem; border: 1px solid var(--line); border-radius: var(--radius);
   background: linear-gradient(110deg,#233d49,#192e3c 60%); margin-bottom: .7rem; gap: .65rem 1rem;
@@ -96,16 +96,21 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .step-actions { justify-content: space-between; border-top: 1px solid var(--line); padding-top: .65rem }
 
 .center-stage { display: flex; flex-direction: column; min-height: 0; height: var(--bench-row); overflow: hidden; background: #142936 }
-.stage-toolbar, .stage-actions { padding: .58rem .65rem; background: #1c3443 }
-.stage-power { display: flex; align-items: center; flex-wrap: wrap; gap: .36rem; padding: .42rem .65rem; background: #172c39; border-top: 1px solid var(--line) }
-.stage-power button { min-height: 29px; font-size: .77rem; padding: .3rem .48rem }
-.stage-toolbar { display: grid; gap: .4rem; border-bottom: 1px solid var(--line) }
-.view-switch, .camera-actions { gap: .27rem }
-.view-switch button, .camera-actions button { font-size: .775rem; padding: .36rem .5rem; min-height: 1.9rem }
-.camera-actions button { background: #1a3040 }
-.camera-actions button.active { background: #294d4c }
-.stage-actions { border-top: 1px solid var(--line); justify-content: flex-start }
-.stage-actions small, .stage-actions p { font-size: .78rem; color: var(--muted) }
+.stage-toolbar, .stage-power {
+  display: flex; align-items: center; flex: none; gap: .3rem; flex-wrap: nowrap;
+  overflow-x: auto; scrollbar-width: thin; white-space: nowrap;
+}
+.stage-toolbar { padding: .38rem .65rem; background: #1c3443; border-bottom: 1px solid var(--line) }
+.stage-toolbar button { min-height: 32px; padding: .28rem .62rem; font-size: .8rem }
+.stage-power { padding: .35rem .65rem; background: #172c39; border-top: 1px solid var(--line) }
+.stage-power > * { flex: none }
+.stage-power button { min-height: 30px; font-size: .77rem; padding: .3rem .48rem }
+.stage-actions {
+  position: absolute; z-index: 3; bottom: .65rem; left: .65rem; display: flex; gap: .35rem;
+}
+.stage-actions:has(#snapPartBtn:disabled):has(#deletePartBtn:disabled) { visibility: hidden }
+.stage-actions button { min-height: 34px; box-shadow: 0 2px 6px #08141f5c }
+.stage-actions button:disabled { background: #192f3e; color: #8b9fa9; border-color: #3c5260; opacity: 1 }
 .three-wrap {
   flex: 1; min-height: 160px; position: relative; overflow: hidden; isolation: isolate;
   background: #112431; touch-action: none;
@@ -113,7 +118,7 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 #threeContainer { position: absolute; inset: 0 }
 #threeContainer canvas { display: block; width: 100%; height: 100%; cursor: grab }
 #threeContainer canvas:active { cursor: grabbing }
-.virtual-chip, .wire-legend, .snap-message, .three-tooltip {
+.virtual-chip, .snap-message, .three-tooltip {
   position: absolute; z-index: 2; background: #122734f2; border: 1px solid #496373; border-radius: .45rem;
 }
 .virtual-chip {
@@ -123,7 +128,7 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .virtual-chip::before { content: ""; width: .45rem; height: .45rem; margin-top: .3rem; background: var(--mint); border-radius: 50% }
 .virtual-chip span { display: block; color: #d5e9e7; font-size: .76rem; font-weight: 650 }
 .snap-message {
-  bottom: .6rem; left: 50%; transform: translateX(-50%); width: max-content; max-width: 92%;
+  bottom: 3.4rem; left: 50%; transform: translateX(-50%); width: max-content; max-width: 92%;
   padding: .4rem .7rem; pointer-events: none; text-align: center; font-size: .79rem; color: #c9dce2;
 }
 .snap-message:empty { display: none }
@@ -137,19 +142,18 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
 .three-tooltip b, .three-tooltip span { display: block }
 .three-tooltip span { color: var(--muted) }
 .stage-preview-control {
-  display: flex; align-items: center; gap: .5rem; padding: .4rem .65rem;
-  border-top: 1px solid var(--line); color: var(--muted); font-size: .78rem;
+  position: absolute; z-index: 3; top: .65rem; right: .65rem;
+  display: grid; justify-items: end; gap: .24rem; max-width: calc(100% - 8.2rem);
+  pointer-events: none;
 }
-.wire-legend {
-  left: .7rem; top: 3.5rem; padding: .55rem; display: grid; gap: .2rem;
-  color: #d6e5ea; font-size: .7rem; pointer-events: none;
+.stage-preview-control button {
+  pointer-events: auto; color: #d6fff5; background: #214d4b; border-color: #60aa9f;
 }
-.wire-legend span, .fc-led-state { display: flex; align-items: center; gap: .4rem }
-.wire-legend .w { display: inline-block; width: 1rem; height: 2px; background: var(--amber) }
-.wire-legend .thick { height: 4px }
-.wire-legend .red { background: #f56056 }.wire-legend .ground-brown { background: #997665 }
-.wire-legend .pink { background: #fc9c9e }.wire-legend .phase-u { background: #f4bc5d }
-.wire-legend .phase-v { background: #80d29d }.wire-legend .phase-w { background: #85a8e8 }
+#assemblyWiringPreviewLabel {
+  background: #122734f2; color: #c9e4e3; border-radius: .3rem; padding: .14rem .4rem;
+  font-size: .77rem; text-align: right;
+}
+#assemblyWiringPreviewLabel:empty { display: none }
 .fc-led-state i { width:.42rem; height:.42rem; border-radius:50%; background:#667780 }
 .fc-led-state.boot .pwr, .fc-led-state.ready .pwr { background:#ff985b }
 .fc-led-state.boot .stat { background:#ffd36f }
@@ -224,12 +228,11 @@ button.active:hover:enabled, button[aria-pressed="true"]:hover:enabled, .btn.pri
   .component-shelf { grid-template-columns: repeat(auto-fill,minmax(145px,1fr)); max-height: 256px }
   .product-card { grid-template-columns: 2.6rem minmax(0,1fr); gap: .2rem .38rem; padding:.35rem }
   .product-card b { font-size:.81rem }
-  .wire-legend { top: auto; bottom: 2.8rem; font-size: .65rem; gap: .06rem; padding: .35rem }
-  .stage-preview-control span { display:none }
+  .stage-toolbar button, .stage-actions button, .stage-preview-control button { min-height: 38px }
 }
 @media (max-width: 360px) {
   .learning-grid, .checks { grid-template-columns: 1fr }
-  .view-switch, .camera-actions { gap: .18rem }
+  .stage-toolbar { gap: .2rem; padding-inline: .4rem }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important }

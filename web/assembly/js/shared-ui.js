@@ -1,5 +1,7 @@
 // Extracted from the supplied V18.3.82 shared-ui reference.
 // Each feature receives the project's shared runtime explicitly.
+import {wiresForStep} from './wiring-preview.js';
+
 export function register(ctx) {
 ctx.product = t=>ctx.products.find(x=>x.type===t);
 
@@ -50,8 +52,7 @@ ctx.wiringPrerequisitesReady = function wiringPrerequisitesReady(id){
 
 ctx.wiringStepProgress = function wiringStepProgress(id){
  if(id==='motorWire'){let n=0;for(let i=1;i<=4;i++){for(const p of ['U','V','W'])if(ctx.state.connections.some(c=>{const a=c.from.split('.'),b=c.to.split('.');return(a[0]===`ESC${i}`&&a[1]===p&&b[0]===`M${i}`&&['U','V','W'].includes(b[1]))||(b[0]===`ESC${i}`&&b[1]===p&&a[0]===`M${i}`&&['U','V','W'].includes(a[1]))}))n++}return n}
- const groups={powerWire:ctx.referenceWires().filter(([a,b])=>a.startsWith('PDB.E')&&b.includes('PWR')),escFc:ctx.referenceWires().filter(([a,b])=>a.startsWith('ESC')&&(/SIG|5V|GND/.test(a))&&b.startsWith('FC.ESC')),xt60:ctx.referenceWires().filter(([a])=>a.startsWith('BAT.'))};
- return (groups[id]||[]).filter(([a,b])=>ctx.pairPresent(a,b)).length
+ return wiresForStep(ctx,id).filter(([a,b])=>ctx.pairPresent(a,b)).length
 };
 
 ctx.wiringActionReady = function wiringActionReady(id){
@@ -112,9 +113,10 @@ ctx.renderSteps = function renderSteps(){
  ctx.$('#assemblySteps').innerHTML=ctx.steps.map((s,i)=>`<div class="build-step ${i===ctx.state.step?'active':''} ${ctx.stepDone(i)?'done':''}" data-i="${i}" role="button" tabindex="0" aria-label="Step ${i+1}: ${s.title}"><div class="n">${String(i+1).padStart(2,'0')}</div><div><b>${s.title}</b><span>${s.target}</span></div><i class="state-dot"></i></div>`).join('');
  ctx.$$('.build-step').forEach(e=>e.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();e.click()}});
  ctx.$$('.build-step').forEach(e=>e.onclick=()=>{const i=+e.dataset.i;if(ctx.state.guided&&i>ctx.state.step&&!ctx.steps.slice(0,i).every((_,j)=>ctx.stepDone(j))){ctx.notify('Complete earlier guided steps first.','bad');return}ctx.historyPush();ctx.state.step=i;ctx.renderAssemblyUI();ctx.showGuides()});
- const s=ctx.steps[ctx.state.step],tip=ctx.stepTips[s.id]||{},wiringStep=ctx.wiringActionIds.has(s.id);ctx.$('#currentStepTitle').textContent=s.title;ctx.$('#currentStepCard').innerHTML=`<b>${s.title}</b><p>${s.desc}</p><div class="targets">Target: ${s.target} • ${ctx.countStep(s)}/${s.need}</div><div class="learning-grid"><div><b>WHY</b><span>${tip.why||'Follow the guided build order.'}</span></div><div><b>CORRECT</b><span>${tip.correct||s.target}</span></div><div><b>COMMON MISTAKE</b><span>${tip.mistake||'Skipping the guided order.'}</span></div><div class="risk"><b>RISK</b><span>${tip.risk||'Incorrect assembly may affect reliability.'}</span></div><div class="checkline"><b>CHECK</b><span>${tip.check||'Verify before continuing.'}</span></div></div>${wiringStep?'<div class="guided-wiring-note"><b>2D wiring is authoritative.</b> The animation is preview-only. Draw the correct connections in 2D Wiring; this Assembly step updates automatically and then Next becomes available.</div><div class="guided-wiring-actions"><button id="doStepAction" class="btn ghost">Preview animation</button><button id="openWiringStep" class="btn primary">Open 2D Wiring</button></div>':s.action?'<button id="doStepAction" class="btn primary full">Complete guided action</button>':''}`;
- if(wiringStep){ctx.$('#doStepAction').onclick=()=>ctx.previewWiringAction(s);ctx.$('#openWiringStep').onclick=()=>ctx.setActiveTab('wiring')}else if(s.action)ctx.$('#doStepAction').onclick=()=>ctx.performAction(s);
- const previewBox=ctx.$('#assemblyWiringPreviewBox'),previewBtn=ctx.$('#assemblyWiringPreviewBtn');if(previewBox&&previewBtn){previewBox.hidden=!wiringStep;previewBtn.disabled=wiringStep&&!ctx.wiringPrerequisitesReady(s.id);previewBtn.onclick=wiringStep?()=>ctx.previewWiringAction(s):null;ctx.$('#assemblyWiringPreviewLabel').textContent=wiringStep?`${s.title} • see the animated path above the model`:''}
+ const s=ctx.steps[ctx.state.step],tip=ctx.stepTips[s.id]||{},wiringStep=ctx.wiringActionIds.has(s.id);ctx.$('#currentStepTitle').textContent=s.title;ctx.$('#currentStepCard').innerHTML=`<b>${s.title}</b><p>${s.desc}</p><div class="targets">Target: ${s.target} • ${ctx.countStep(s)}/${s.need}</div><div class="learning-grid"><div><b>WHY</b><span>${tip.why||'Follow the guided build order.'}</span></div><div><b>CORRECT</b><span>${tip.correct||s.target}</span></div><div><b>COMMON MISTAKE</b><span>${tip.mistake||'Skipping the guided order.'}</span></div><div class="risk"><b>RISK</b><span>${tip.risk||'Incorrect assembly may affect reliability.'}</span></div><div class="checkline"><b>CHECK</b><span>${tip.check||'Verify before continuing.'}</span></div></div>${wiringStep?'<div class="guided-wiring-note">Complete these connections in 2D wiring.</div><div class="guided-wiring-actions"><button id="openWiringStep" class="btn primary">Open 2D wiring</button></div>':s.action?'<button id="doStepAction" class="btn primary full">Complete guided action</button>':''}`;
+ if(wiringStep)ctx.$('#openWiringStep').onclick=()=>ctx.setActiveTab('wiring');
+ else if(s.action)ctx.$('#doStepAction').onclick=()=>ctx.performAction(s);
+ ctx.syncWiringPreview(s);
  ctx.$('#progressPill').textContent=Math.round(ctx.steps.filter((_,i)=>ctx.stepDone(i)).length/ctx.steps.length*100)+'%'
 };
 

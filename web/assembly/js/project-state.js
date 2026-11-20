@@ -2,8 +2,8 @@
  * one transactional history. Snapshots never contain credentials or old keys. */
 export function createProjectState() {
   return { guided:true, step:0, selectedType:null, selectedInstalledId:null,
-    parts:[], doneActions:new Set(), connections:[], wireMap:false, xray:false,
-    fcCaseXray:false, exploded:false, autoRotate:false, powered:false,
+    parts:[], doneActions:new Set(), connections:[],
+    exploded:false, powered:false,
     powerStage:0, batteryV:12.2, gpsProtocol:'NMEA_9600' };
 }
 export function snapshot(ctx) {
@@ -45,9 +45,12 @@ export function register(ctx) {
     queueMicrotask(()=>{pending=false;ctx.saveProject();});
   };
   ctx.clearAssemblyObjects=()=>{
+    ctx.stopWiringPreview?.();
+    ctx.placementTap = null;
+    if (ctx.snapPreview) ctx.snapPreview.visible = false;
     ctx.powerSequenceToken++;ctx.fastenerSequenceToken=(ctx.fastenerSequenceToken||0)+1;ctx.stopTransientTones?.();ctx.stopMotorTest?.();
-    for(const name of ['partsRoot','wiresRoot','guidesRoot','extrasRoot','labelsRoot','solderRoot','powerPulseRoot'])ctx[name]?.clear();
-    ctx.animations=[];ctx.powerPulseItems=[];ctx.state.parts=[];
+    for(const name of ['partsRoot','wiresRoot','guidesRoot','extrasRoot','labelsRoot','solderRoot'])ctx[name]?.clear();
+    ctx.animations=[];ctx.state.parts=[];
     ctx.state.selectedType=null;ctx.state.selectedInstalledId=null;
     ctx.selPort=null;ctx.selectedWireId=null;ctx.selectedWireNodeId=null;
     ctx.$('#threeWrap')?.classList.remove('fastener-active');
@@ -60,7 +63,7 @@ export function register(ctx) {
       s.doneActions=new Set((d.actions||[]).filter(x=>ctx.steps.some(t=>t.id===x)));
       s.connections=(d.connections||[]).filter(c=>typeof c.from==='string'&&typeof c.to==='string').map(c=>({...c}));
       s.batteryV=Number(d.batteryV)||12.2;
-      s.exploded=false;s.xray=false;s.fcCaseXray=false;s.autoRotate=false;
+      s.exploded=false;
       ctx.wireLayout={...structuredClone(ctx.wireDefaultLayout),...(d.wireLayout||{})};
       ctx.wireNodeTransforms=d.wireNodeTransforms||{};ctx.optionalWireNodes=d.optionalWireNodes||[];
       s.gpsProtocol=d.gpsProtocol==='UBX_10HZ'?'UBX_10HZ':'NMEA_9600';ctx.$('#wireGpsProtocol').value=s.gpsProtocol;
@@ -70,7 +73,6 @@ export function register(ctx) {
       ctx.syncWiringActionsToAssembly();ctx.setPowerVisual(ctx.wiringActionReady('xt60'),true);
       ctx.renderAssemblyUI();ctx.render2D();ctx.rebuild3DWires();ctx.rebuildSolder();ctx.showGuides();
       ctx.$('#guidedModeBtn').classList.toggle('active',s.guided);ctx.$('#freeModeBtn').classList.toggle('active',!s.guided);
-      ['explodeBtn','autoRotateBtn','xrayBtn','fcCaseXrayBtn'].forEach(id=>ctx.$('#'+id).classList.remove('active'));
     }finally{ctx.history.restoring=false;ctx.historyButtons();ctx.persistWireLayout();}
   };
   ctx.undoAction=()=>{const h=ctx.history;if(!h.undo.length){ctx.notify('Nothing to undo.','bad');return;}
