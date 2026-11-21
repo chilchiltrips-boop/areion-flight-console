@@ -112,12 +112,10 @@ export function mount(root) {
   }
   function pid(){
     const matrix=(g,n,title,caption)=>{
-      const copyAxis='Simulator axis for '+title;
-      const prior=axes.indexOf(benchState?.lastAxis);
       const table=kvTable(['',...axes.slice(0,n)],['P · Proportional','I · Integral','D · Derivative'].map((k,i)=>'<tr><th scope="row">'+k+'</th>'+Array.from({length:n},(_,j)=>'<td>'+editor(g,i*n+j,k+' '+axes[j]+' '+(g===2?'rate':'angle'))+'</td>').join('')+'</tr>').join(''));
       return '<section class="cfg-card pid-matrix"><div class="pid-line"><h3>'+title+' <small>'+caption+'</small></h3><label><input type="checkbox" data-confirm="axis-'+g+'"> Link roll/pitch</label></div>'+table+'<div class="cfg-actions">'+
         ['read','saved','revert'].map((action,i)=>'<button type="button" class="cfg-btn" data-kit="'+action+'-'+g+'">'+['Read FC','Read saved','Revert'][i]+'</button>').join('')+
-        (subPID===4?opt(copyAxis,axes.slice(0,n),prior>=0&&prior<n?prior:0)+'<button type="button" class="cfg-btn" data-stage-group="'+g+'" disabled>Copy sim gains to editor</button>':'')+
+        (subPID===4?'<button type="button" class="cfg-btn" data-stage-group="'+g+'" disabled>Copy all '+(g===2?'rate':'attitude')+' gains to editor</button>':'')+
         extras.pid(g)+'</div><small>'+reading('boardGain')+'</small></section>';
     };
     const tracking=()=>'<section class="cfg-card cfg-tracking"><div class="pid-line"><h3>Tracking response</h3><div>'+opt('Loop',['Rate','Angle'],responseAngle)+opt('Axis',axes.slice(0,responseAngle?2:3),responseAxis)+'</div></div><small>Measured <b class="cfg-meas">━</b> &nbsp; Target <b class="cfg-target">━</b> · '+(responseAngle?'degrees':'degrees / second')+' · 10 s</small><canvas data-response class="cfg-response" role="img" aria-label="Measured and target response over ten seconds"></canvas></section>';
@@ -196,7 +194,7 @@ export function mount(root) {
     if(packet.group===120)statusRow=packet;
     if(tripod&&last){
       if(benchState?.capture.session)benchState.capture.packet(packet,tripodSession(last));
-      if(tripod.mirroring&&[22,120,122].includes(packet.group))tripod.receive(tripodTelemetry(last,packet.at));
+      if(tripod.mirroring&&[7,22,112,120,122,131,132,134].includes(packet.group))tripod.receive(tripodTelemetry(last,packet.at));
     }
     if(sensor.active && last && sensorVisible()){
       calibration.onPacket(packet,last,sensorControls());
@@ -309,8 +307,7 @@ export function mount(root) {
     if(el.hasAttribute('data-pid')){last?.navigate('configuration/'+pidTabs[Number(el.dataset.pid)][0]);return;}
     if(el.hasAttribute('data-stage-group')&&benchState){
       const g=Number(el.dataset.stageGroup),values=packGains({...benchState.sim.pid,...benchState.sim.pendingPID},g);
-      const axis=el.closest('.pid-matrix').querySelector('select[data-select]');
-      if(values&&axis)hardware.stagePid(g,values,Number(axis.value));
+      if(values)hardware.stagePid(g,values);
       return;
     }
     if(el.closest('[data-tripod]'))return;

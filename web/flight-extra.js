@@ -1,3 +1,4 @@
+import {stickPoint} from './stick-geometry.js';
 import {airframe} from './airframe.js';
 import {cockpitMarkup} from './cockpit-markup.js';
 import {flightDisplay, signed, tilt, wrap} from './cockpit-pfd.js';
@@ -89,14 +90,28 @@ export function mountFlightExtra(root){
     const wasRunning=sender.stop();
     if(wasRunning){message(reason);Promise.resolve(ctx?.stopKit?.()).catch(e=>message(e.message));}
   }
+  function drawSticks(channels){
+    dots.forEach((node,i)=>{
+      const h=channels?.[i===0?3:0],v=channels?.[i===0?2:1];
+      node.style.display=Number.isFinite(h)&&Number.isFinite(v)?'':'none';
+      if(node.style.display)return;
+      const x=80+clamp((h-1500)/500,-1,1)*51,y=80-clamp((v-1500)/500,-1,1)*51;
+      const t='translate('+x+' '+y+')';
+      if(node.lastElementChild.getAttribute('transform')===t)return;
+      node.firstElementChild.setAttribute('d','M80 80L'+x+' '+y);
+      node.lastElementChild.setAttribute('transform',t);
+    });
+  }
   function finishPointer(stick){
     if(stick.dataset.pointer===undefined)return;
     delete stick.dataset.pointer;controls.stick(stick.dataset.side==='left',0,0,false);
+    if(canEdit())drawSticks(controls.values);
   }
   function movePointer(stick,e){
     if(String(e.pointerId)!==stick.dataset.pointer||!canEdit())return;
-    const rect=stick.getBoundingClientRect(),radius=rect.width*0.32;
-    controls.stick(stick.dataset.side==='left',(e.clientX-rect.left-rect.width/2)/radius,(rect.top+rect.height/2-e.clientY)/radius,true);
+    const point=stickPoint(stick.getBoundingClientRect(),e.clientX,e.clientY,51/160);
+    controls.stick(stick.dataset.side==='left',point.x,point.y,true);
+    drawSticks(controls.values);
   }
   for(const stick of all('.tx-stick')){
     stick.onpointerdown=e=>{
@@ -105,7 +120,7 @@ export function mountFlightExtra(root){
     };
     stick.onpointermove=e=>movePointer(stick,e);
     stick.onpointerup=e=>{if(String(e.pointerId)===stick.dataset.pointer)finishPointer(stick);};
-    stick.onlostpointercapture=stick.onpointercancel=()=>finishPointer(stick);
+    stick.onlostpointercapture=stick.onpointercancel=stick.onpointerup;
   }
   function keyEvent(e,down) {
     if(root.hidden||document.hidden)return;
@@ -225,14 +240,7 @@ export function mountFlightExtra(root){
     root.classList.toggle('receiver-mode',ppm||c.replay);
     if(keyboardOnly&&keyboard.checked&&canEdit())controls.step(since/1000);
     const local=ppm||c.replay?s.channels:controls.values,received=s.channels;
-    const setDot=(index,h,v)=>{
-      const node=dots[index];node.style.display=Number.isFinite(h)&&Number.isFinite(v)?'':'none';
-      if(node.style.display)return;
-      const x=80+clamp((h-1500)/500,-1,1)*51,y=80-clamp((v-1500)/500,-1,1)*51;
-      const t='translate('+x+' '+y+')';if(node.lastElementChild.getAttribute('transform')===t)return;
-      node.firstElementChild.setAttribute('d','M80 80L'+x+' '+y);node.lastElementChild.setAttribute('transform',t);
-    };
-    setDot(0,local?.[3],local?.[2]);setDot(1,local?.[0],local?.[1]);
+    drawSticks(local);
     const settings=c.group(7),modeChannel=settings?.[0]??5;
     for(let i=0;i<8;i++){
       const n=local?.[i],pretty=n??'—';

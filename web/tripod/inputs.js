@@ -1,101 +1,123 @@
 import {clamp, startSimulator, stopSimulator, releaseInputs} from './tripod-physics.js';
+import {stickPoint, pulseForAxis} from '../stick-geometry.js';
+
+export const PAD_TRAVEL = .40;
+export const inputNames = {local:'Virtual sticks', PPM:'PPM receiver', AP:'AP Wi-Fi input', USB:'USB input', receiver:'Active kit input'};
 
 export class SimulatorInput {
-  constructor(sim) {
+  constructor(sim, source = 'local') {
     this.sim = sim;
-    this.source = 'local';
+    this.source = source;
     this.identity = null;
   }
+  get local() { return this.source === 'local'; }
+  receiver(kit, now) {
+    if (!kit || this.local) return null;
+    const accepted = kit.input;
+    const sample = this.source === 'receiver' || accepted?.source === this.source ? accepted :
+      this.source === 'PPM' ? kit.rawPpm : null;
+    return sample && now < sample.until ? sample : null;
+  }
   stop() {
-    // Preserve a virtual gain edit if input drops before the next 4 ms tick.
     Object.assign(this.sim.pid, this.sim.pendingPID);
     stopSimulator(this.sim);
     this.identity = null;
   }
+  virtualStartPulse() {
+    return this.sim.throttle < this.sim.settings.throttleLow ? 1500 : Math.round(this.sim.throttle);
+  }
   start(kit, now) {
-    if (this.source === 'receiver') {
-      if (!kit?.input || kit.input.until <= now) return 'Waiting for receiver input';
-      this.sim.throttle = kit.input.channels[2];
+    if (this.sim.running) return '';
+    const sample = this.receiver(kit,now);
+    if (this.local) {
+      // Explicit software-only run. Show this starting pulse on the Run button.
+      if (!startSimulator(this.sim, this.virtualStartPulse())) return 'Set a valid virtual throttle';
+    } else {
+      if (!sample) return 'Waiting for '+inputNames[this.source];
+      this.sim.throttle = sample.channels[2];
+      if (!startSimulator(this.sim)) return 'Lower throttle to start';
+      this.identity = sample.identity;
+      this.sample(kit,now);
     }
-    if (!startSimulator(this.sim)) return 'Lower throttle to start';
-    this.identity = this.source === 'receiver' ? kit.input.identity : null;
     return '';
   }
   sample(kit, now) {
-    if (this.source !== 'receiver') return '';
-    const input = kit?.input;
-    if (!input || now >= input.until || (this.sim.running && input.identity !== this.identity)) {
-      const wasRunning = this.sim.running;
-      if (wasRunning || this.sim.throttle !== 1000 || this.sim.cmdRoll || this.sim.cmdPitch || this.sim.cmdYaw) this.stop();
-      return wasRunning ? 'Receiver lost or changed · run again at low throttle' : '';
+    if (this.local) return '';
+    const input = this.receiver(kit,now);
+    if (!input || (this.sim.running && input.identity !== this.identity)) {
+      const running = this.sim.running;
+      if (running || this.sim.throttle !== 1000 || this.sim.cmdRoll || this.sim.cmdPitch || this.sim.cmdYaw) this.stop();
+      return running ? 'Receiver lost or changed · run again at low throttle' : '';
     }
     const [roll, pitch, throttle, yaw] = input.channels;
-    this.sim.throttle = clamp(throttle,1000,2000);
     const axis = value => clamp((value - 1500) / 500, -1, 1);
+    this.sim.throttle = clamp(throttle,1000,2000);
     this.sim.cmdRoll = axis(roll); this.sim.cmdPitch = axis(pitch); this.sim.cmdYaw = axis(yaw);
     return '';
   }
 }
 
-export function bindSticks(root, sim, local, signal, toggleRun) {
+// Render the two gimbals from the same values that drive the FC's mixer.
+export function bindSticks(root, sim, local, signal, toggleRun, changed) {
   const keys = new Set(), pointers = new Map();
   const pads = [...root.querySelectorAll('[data-pad]')];
+  const available = () => local() && root.isConnected && !root.closest('[hidden]') && !document.hidden;
   const signed = (plus, minus) => Number(keys.has(plus)) - Number(keys.has(minus));
-  const deadband = value => {
-    const d = Math.abs(value);
-    if (d <= .04) return 0;
-    const t = (d - .04) / .96;
-    return Math.sign(value) * (.8*t + .2*t**3);
-  };
   function update(dt = 0) {
-    if (!local()) return;
+    if (!available()) return;
     const left = pointers.get('left'), right = pointers.get('right');
-    sim.cmdRoll = clamp(deadband(right?.x ?? 0) + signed('ArrowRight','ArrowLeft'), -1, 1);
-    sim.cmdPitch = clamp(deadband(right?.y ?? 0) + signed('ArrowUp','ArrowDown'), -1, 1);
-    sim.cmdYaw = clamp(deadband(left?.x ?? 0) + signed('KeyD','KeyA'), -1, 1);
-    if (sim.running && left) sim.throttle = clamp(sim.throttle + deadband(left.y)*400*dt, 1000, 2000);
+    sim.cmdRoll = right?.x ?? signed('ArrowRight','ArrowLeft');
+    sim.cmdPitch = right?.y ?? signed('ArrowUp','ArrowDown');
+    sim.cmdYaw = left?.x ?? signed('KeyD','KeyA');
+    if (!left && (keys.has('KeyW') || keys.has('KeyS')))
+      sim.throttle = clamp(sim.throttle + signed('KeyW','KeyS') * 500 * Math.min(dt,.08),1000,2000);
   }
+  function paint() { update(); changed(); }
   for (const pad of pads) {
     const side = pad.dataset.pad;
     const move = event => {
-      const point = pointers.get(side);
-      if (point?.id !== event.pointerId) return;
-      const rect = pad.getBoundingClientRect(), radius = Math.max(1, rect.width * .4);
-      const x = (event.clientX - rect.left - rect.width/2)/radius;
-      const y = (rect.top + rect.height/2 - event.clientY)/radius;
-      const length = Math.max(1, Math.hypot(x,y));
-      point.x = x/length; point.y = y/length;
-      update();
+      const contact = pointers.get(side);
+      if (contact?.id !== event.pointerId || !available()) return;
+      Object.assign(contact, stickPoint(pad.getBoundingClientRect(),event.clientX,event.clientY,PAD_TRAVEL));
+      if (side === 'left') sim.throttle = pulseForAxis(contact.y);
+      sim.pulse = null;
+      paint();
     };
     pad.addEventListener('pointerdown', event => {
-      if (!local() || event.button !== 0 || pointers.has(side)) return;
-      event.preventDefault(); pad.focus({preventScroll:true}); pad.setPointerCapture(event.pointerId);
-      pointers.set(side, {id:event.pointerId,x:0,y:0}); move(event);
-    }, {signal});
+      if (!available() || event.button !== 0 || pointers.has(side)) return;
+      event.preventDefault();
+      pad.focus({preventScroll:true}); pad.setPointerCapture(event.pointerId);
+      pointers.set(side,{id:event.pointerId,x:0,y:0}); move(event);
+    },{signal});
     pad.addEventListener('pointermove',move,{signal});
-    for (const event of ['pointerup','pointercancel','lostpointercapture']) {
-      pad.addEventListener(event,e=>{
-        if (pointers.get(side)?.id === e.pointerId) { pointers.delete(side); update(); }
+    for (const name of ['pointerup','pointercancel','lostpointercapture']) {
+      pad.addEventListener(name,event=>{
+        if (pointers.get(side)?.id !== event.pointerId) return;
+        pointers.delete(side); paint();
       },{signal});
     }
   }
   const allowed = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','KeyA','KeyD','KeyW','KeyS','KeyR'];
   window.addEventListener('keydown',event=>{
-    if (!local() || document.hidden || event.ctrlKey || event.metaKey || event.altKey ||
+    if (!available() || event.ctrlKey || event.metaKey || event.altKey ||
         event.target.closest?.('input,textarea,select,[contenteditable=true],dialog') || document.querySelector('dialog[open]') ||
         !allowed.includes(event.code)) return;
     event.preventDefault();
     if (event.code === 'KeyR') { if (!event.repeat) toggleRun(); return; }
-    if (event.code === 'KeyW' || event.code === 'KeyS') {
-      sim.throttle = clamp(sim.throttle + (event.code === 'KeyW' ? 25 : -25),1000,2000);
-    } else { keys.add(event.code); update(); }
-  }, {signal});
-  window.addEventListener('keyup',event=>{ if (keys.delete(event.code)) update(); }, {signal});
-  return {update, release() {
+    if (!event.repeat && (event.code === 'KeyW' || event.code === 'KeyS') && !pointers.has('left'))
+      sim.throttle = clamp(sim.throttle + (event.code === 'KeyW' ? 5 : -5),1000,2000);
+    sim.pulse=null;keys.add(event.code);paint();
+  },{signal});
+  window.addEventListener('keyup',event=>{if(keys.delete(event.code))paint();},{signal});
+  function release() {
     for (const pad of pads) {
       const id = pointers.get(pad.dataset.pad)?.id;
+      pointers.delete(pad.dataset.pad);
       if (id != null && pad.hasPointerCapture(id)) pad.releasePointerCapture(id);
     }
-    pointers.clear(); keys.clear(); releaseInputs(sim);
-  }};
+    keys.clear();
+    if (local()) releaseInputs(sim);
+  }
+  window.addEventListener('blur',release,{signal});
+  return {update,release};
 }

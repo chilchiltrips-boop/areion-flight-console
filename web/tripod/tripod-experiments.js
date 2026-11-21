@@ -2,10 +2,11 @@ import {createSimulator,startSimulator,stepSimulator,setPID,setFlightMode,startT
 import {limits} from './gains.js';
 /* Replayable A/B bench: identical PID setup, environment, disturbance and time.
  * This pure computation never changes the live running aircraft. */
-export function simulateResponse({basePID=DEFAULT_PID,bank='rateRoll',gain='p',values=[.4,2],mode=null,environment={},settings=null,axis='roll',duration=6.5,scenario:chosenScenario=null}={}){
+export function simulateResponse({basePID=DEFAULT_PID,bank='rateRoll',gain='p',values=[.4,2],mode=null,readLoop=null,environment={},settings=null,axis='roll',duration=6.5,scenario:chosenScenario=null}={}){
  if(!['p','i','d'].includes(gain)||!Object.hasOwn(basePID,bank))throw Error('Invalid PID comparison bank/gain');
  if(!Array.isArray(values)||values.length!==2||values.some(v=>!Number.isFinite(v)||v<0||v>limits[gain]))throw Error('Invalid comparison values');
  const flightMode=mode||((bank.startsWith('rate')&&!bank.startsWith('angle'))?'acro':'angle');
+ const trackRate=axis==='yaw'||flightMode==='acro'||readLoop==='rate';
  const scenario=chosenScenario|| (gain==='i'?'bias':'pulse');
  if(!['bias','pulse','combined'].includes(scenario))throw Error('Invalid comparison scenario');
  const results=values.map(value=>{
@@ -20,8 +21,8 @@ export function simulateResponse({basePID=DEFAULT_PID,bank='rateRoll',gain='p',v
    if(scenario!=='bias'&&t===75)startTuningPulse(s,axis,12);
    stepSimulator(s);
    if(axis!=='yaw'&&Math.abs(s[axis])>=45)limitContact=true;
-   const axisC=axis[0].toUpperCase()+axis.slice(1),target=axis==='yaw'?s.targetYawRate:(flightMode==='acro'?s['target'+axisC+'Rate']:s['target'+axisC]);
-   const actual=axis==='yaw'?s.yawRate:(flightMode==='acro'?s[axis+'Rate']:s[axis]),err=target-actual;
+   const axisC=axis[0].toUpperCase()+axis.slice(1),target=s['target'+axisC+(trackRate?'Rate':'')];
+   const actual=s[axis+(trackRate?'Rate':'')],err=target-actual;
    errorSum+=err*err;peakAbs=Math.max(peakAbs,Math.abs(actual));peakRate=Math.max(peakRate,Math.abs(s[axis+'Rate']));
    if(scenario!=='bias'&&target===0)overshoot=Math.max(overshoot,Math.abs(actual));
    const sign=Math.abs(err)>.5?Math.sign(err):0;if(sign&&lastSign&&sign!==lastSign)reversals++;if(sign)lastSign=sign;

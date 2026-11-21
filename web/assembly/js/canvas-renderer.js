@@ -82,13 +82,14 @@ export class CanvasRenderer {
       buf[3*i]=(v.x+1)*w; buf[3*i+1]=(1-v.y)*h; buf[3*i+2]=v.z;
     }
     const count=ids?.count??positions.count;
+    const winding=object.matrixWorld.determinant()<0?-1:1;
     for(let i=0;i+2<count;i+=3) {
       const ia=ids?ids.getX(i):i, ib=ids?ids.getX(i+1):i+1, ic=ids?ids.getX(i+2):i+2;
       const a=ia*3,b=ib*3,c=ic*3,az=buf[a+2],bz=buf[b+2],cz=buf[c+2];
       if(Math.min(az,bz,cz)<-1 || Math.max(az,bz,cz)>1)continue;
       const ax=buf[a],ay=buf[a+1],bx=buf[b],by=buf[b+1],cx=buf[c],cy=buf[c+1];
       if(Math.max(ax,bx,cx)<0 || Math.max(ay,by,cy)<0 || Math.min(ax,bx,cx)>w*2 || Math.min(ay,by,cy)>h*2)continue;
-      const area=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax);
+      const area=((bx-ax)*(cy-ay)-(by-ay)*(cx-ax))*winding;
       if(Math.abs(area)<.28 || (mat.side===this.THREE.FrontSide&&area>0) || (mat.side===this.THREE.BackSide&&area<0))continue;
       this.rgb.copy(mat.color);
       if(colours) {

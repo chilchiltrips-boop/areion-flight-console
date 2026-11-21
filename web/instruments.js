@@ -21,7 +21,7 @@ export class Instruments {
     this.frames.set(row.group, row);
     const v = row.values;
     if (row.group === 122) {
-      const key = v[4] ? [v[0], v[1], v[5]].join('/') : '';
+      const key = v[4] ? [v[0], v[1], v[5], v[0] === 0 ? 0 : v[7]].join('/') : '';
       if (key !== this.receiverGate) {
         this.rxSince = row.at;
         this.receiverGate = key;

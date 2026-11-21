@@ -147,8 +147,14 @@ export class ConfigPanel {
     const active=this.ctx.group(group);
     if(!active||values.length!==active.length||!values.every(Number.isFinite))return;
     const width=group===2?3:2;
-    if(!Number.isInteger(axis)||axis<0||axis>=width)return;
+    if(axis!==undefined&&(!Number.isInteger(axis)||axis<0||axis>=width))return;
     if(!this.base.has(group))this.base.set(group,[...active]);
+    if(axis===undefined){
+      values.forEach((value,i)=>this.draft.set(group+':'+i,value));
+      if(values.some((v,i)=>i%width===0&&v!==values[i+1]))this.confirm.delete('axis-'+group);
+      this.info('All '+(group===2?'rate':'attitude')+' gains copied. Review and select Apply to FC.');
+      this.refresh(this.ctx);return;
+    }
     const linked=axis<2&&this.confirm.has('axis-'+group);
     for(let term=0;term<3;term++){
       const index=term*width+axis;

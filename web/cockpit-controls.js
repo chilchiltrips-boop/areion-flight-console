@@ -1,3 +1,4 @@
+import {pulseForAxis} from './stick-geometry.js';
 // Channels use the accepted FC order from the Python transmitter.
 export const NEUTRAL = Object.freeze([1500,1500,1000,1500,1000,1000,1000,1000]);
 export const DEFAULT_KEYS = Object.freeze(['Left','Right','Down','Up','S','W','A','D','1','2','3','4','5','6','7','8']);
@@ -91,10 +92,9 @@ export class Controls {
   constructor(keys=DEFAULT_KEYS){this.keys=validKeys(keys)?[...keys]:[...DEFAULT_KEYS];this.reset();}
   reset(){this.values=[...NEUTRAL];this.held=[false,false];this.pressed=new Set();}
   stick(left,x,y,held){
-    const p=v=>Math.round(1500+500*clamp(v,-1,1));
     this.held[left?0:1]=held;
-    if(left){this.values[3]=held?p(x):1500;if(held)this.values[2]=p(y);}
-    else {this.values[0]=held?p(x):1500;this.values[1]=held?p(y):1500;}
+    if(left){this.values[3]=held?pulseForAxis(x):1500;if(held)this.values[2]=pulseForAxis(y);}
+    else {this.values[0]=held?pulseForAxis(x):1500;this.values[1]=held?pulseForAxis(y):1500;}
   }
   key(key,down){
     const index=this.keys.indexOf(key);

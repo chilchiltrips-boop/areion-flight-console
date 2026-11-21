@@ -5,11 +5,15 @@ import {ConfigPanel} from '../web/config-panel.js';
 import {Instruments} from '../web/instruments.js';
 import {parseCsv,serialize} from '../web/records.js';
 import {packGains,unpackGains} from '../web/tripod/gains.js';
-import {SimulatorInput} from '../web/tripod/inputs.js';
+import {bindSticks, SimulatorInput} from '../web/tripod/inputs.js';
 import {TripodRecording,tripodSession,tripodTelemetry} from '../web/tripod/telemetry.js';
-import {DEFAULT_PID,STEP,controlSettings,createSimulator,motorMix,setFlightMode,setPID,
+import {DEFAULT_PID,STEP,controlSettings,createSimulator,motorMix,setFlightMode,setPID,setSimulatorGains,
   startSimulator,stepSimulator} from '../web/tripod/tripod-physics.js';
 import {simulateResponse} from '../web/tripod/tripod-experiments.js';
+
+import {Euler,Vector3} from '../web/assembly/three.module.min.js';
+import {setPilotAttitude} from '../web/tripod/scene.js';
+import {stickPoint} from '../web/stick-geometry.js';
 
 const row=(group,values,at)=>({group,values,at});
 const status=[false,true,true,8,.004,2000,3600,true,false,false];
@@ -149,4 +153,118 @@ test('copying virtual gains stages only the selected FC axis without issuing a l
   assert.equal(panel.base.has(3),false);
   panel.busy=true;ConfigPanel.prototype.stagePid.call(panel,3,defaults[3],1);
   assert.equal(panel.base.has(3),false);
+});
+
+test('dual pointer gimbals keep independent endpoints, absolute throttle, and spring return',t=>{
+  class Pad extends EventTarget {
+    constructor(side,left){super();this.dataset={pad:side};this.left=left;}
+    getBoundingClientRect(){return {left:this.left,top:0,width:100,height:100};}
+    focus(){}
+    setPointerCapture(id){this.capture=id;}
+    hasPointerCapture(id){return id===this.capture;}
+    releasePointerCapture(){this.capture=null;}
+    send(type,id,x,y){this.dispatchEvent(Object.assign(new Event(type,{cancelable:true}),{pointerId:id,button:0,clientX:x,clientY:y}));}
+  }
+  const left=new Pad('left',0),right=new Pad('right',120);
+  const root={isConnected:true,closest:()=>null,querySelectorAll:()=>[left,right]};
+  const oldDoc=globalThis.document,oldWindow=globalThis.window;
+  globalThis.window=new EventTarget();globalThis.document={hidden:false,querySelector:()=>null};
+  t.after(()=>{if(oldWindow)globalThis.window=oldWindow;else delete globalThis.window;
+    if(oldDoc)globalThis.document=oldDoc;else delete globalThis.document;});
+  const sim=createSimulator(),abort=new AbortController();
+  t.after(()=>abort.abort());
+  let local=true,redraws=0;
+  const controls=bindSticks(root,sim,()=>local,abort.signal,()=>{},()=>redraws++);
+  left.send('pointerdown',10,90,90);right.send('pointerdown',12,210,10);
+  assert.deepEqual([sim.throttle,sim.cmdYaw,sim.cmdRoll,sim.cmdPitch],[1000,1,1,1]);
+  left.send('pointermove',10,10,30);right.send('pointermove',99,170,50);
+  for(let i=0;i<200;i++)controls.update(.016);
+  assert.deepEqual([sim.throttle,sim.cmdYaw,sim.cmdRoll,sim.cmdPitch],[1750,-1,1,1]);
+  left.send('pointerup',10,10,30);
+  assert.deepEqual([sim.throttle,sim.cmdYaw,sim.cmdRoll,sim.cmdPitch],[1750,0,1,1]);
+  right.send('pointercancel',99,170,50);assert.equal(sim.cmdRoll,1);
+  right.send('pointercancel',12,170,50);assert.equal(sim.cmdRoll,0);assert.equal(sim.cmdPitch,0);
+  root.closest=()=>({hidden:true});
+  right.send('pointerdown',15,210,10);assert.equal(sim.cmdRoll,0);
+  root.closest=()=>null;local=false;left.send('pointerdown',16,90,10);assert.equal(sim.throttle,1750);
+  assert.ok(redraws>=5);
+  assert.deepEqual(stickPoint({left:0,top:0,width:200,height:100},132,18,.32),{x:1,y:1});
+});
+
+test('virtual Run supplies the labelled bench throttle and signed sticks move all three axes',()=>{
+  for(const flight of ['angle','acro'])for(const sign of [-1,1]){
+    const s=createSimulator(),input=new SimulatorInput(s);
+    s.environment.gyroNoise=0;
+    assert.equal(input.start(null,0),'');assert.equal(s.throttle,1500);setFlightMode(s,flight);
+    s.cmdRoll=.30*sign;s.cmdPitch=-.20*sign;s.cmdYaw=.42*sign;
+    for(let i=0;i<140;i++)stepSimulator(s);
+    assert.ok(s.roll*sign>1 && -s.pitch*sign>1 && s.yaw*sign>1);
+    assert.equal(s.targetYawRate,31.5*sign);
+    if(flight==='angle'){assert.equal(s.targetRoll,15*sign);assert.equal(s.targetPitch,-10*sign);}
+    else {assert.equal(s.targetRollRate,22.5*sign);assert.equal(s.targetPitchRate,-15*sign);}
+    const before=Math.abs(s.roll);
+    s.cmdRoll=s.cmdPitch=s.cmdYaw=0;
+    for(let i=0;i<650;i++)stepSimulator(s);
+    if(flight==='angle')assert.ok(Math.abs(s.roll)<before*.25);
+    else assert.ok(Math.abs(s.roll)>before*.70 && Math.abs(s.rollRate)<2);
+    s.throttle=1000;stepSimulator(s);assert.deepEqual(s.motorCommands,[0,0,0,0]);
+  }
+});
+
+test('pilot view lowers the commanded wing and nose and yaws right with a right command',()=>{
+  const rot=new Euler(),right=new Vector3(1,0,0),front=new Vector3(0,0,-1);
+  setPilotAttitude(rot,{roll:20,pitch:0,yaw:0});assert.ok(right.clone().applyEuler(rot).y<0);
+  setPilotAttitude(rot,{roll:0,pitch:20,yaw:0});assert.ok(front.clone().applyEuler(rot).y<0);
+  setPilotAttitude(rot,{roll:0,pitch:0,yaw:20});assert.ok(front.clone().applyEuler(rot).x>0);
+});
+
+test('whole gain matrices validate before staging and become active together on the virtual control tick',()=>{
+  const s=createSimulator();startSimulator(s);
+  const all=structuredClone(DEFAULT_PID);
+  all.rateRoll.p=1.23;all.ratePitch.i=30;all.rateYaw.d=.05;all.anglePitch.d=1.2;
+  const bad=structuredClone(all);bad.anglePitch.d=21;
+  assert.equal(setSimulatorGains(s,bad),false);assert.deepEqual(s.pendingPID,{});
+  assert.ok(setSimulatorGains(s,all));assert.deepEqual(s.pid,DEFAULT_PID);
+  stepSimulator(s);assert.deepEqual(s.pid,all);
+  const response=simulateResponse({mode:'angle',readLoop:'rate',axis:'pitch',bank:'ratePitch',duration:2});
+  assert.ok(response.results[0].samples.some(row=>Math.abs(row.target)>1));
+  assert.ok(response.results[0].samples.every(row=>row.actual===row.measuredRate&&row.target===row.outerRate));
+});
+
+test('PPM and AP follow their own fresh TRPY data over either connection; a new AP owner needs new channels',()=>{
+  for (const path of ['USB','AP']){
+    const ctx=context();ctx.path=path;
+    const sim=createSimulator(),ap=new SimulatorInput(sim,'AP'),ppm=new SimulatorInput(createSimulator(),'PPM');
+    assert.match(ap.start(tripodTelemetry(ctx),1010),/Waiting/);
+    const config=[...defaults[134]],endpoints=[...defaults[132]];
+    config.splice(2,4,2,1,3,4);endpoints[7]=1;
+    for(const [group,values] of [[134,config],[132,endpoints],[7,[6,.1,.15,.15,1,0]],
+      [122,[1,2,true,true,true,8,6,86,false]],[22,[1750,1200,1000,1650,1000,1800,1500,1500]],
+      [131,[1400,1800,1000,1504,1000,1900,1500,1500,8,true,10]]])ctx.model.push(row(group,values,1020));
+    const kit=tripodTelemetry(ctx,1021);
+    assert.equal(ap.start(kit,1021),'');
+    assert.deepEqual([sim.cmdRoll,sim.cmdPitch,sim.cmdYaw],[.5,-.6,.3]);
+    const radio=ppm.receiver(kit,1021);assert.deepEqual(radio.channels,[1200,1400,1000,1500]);
+    assert.equal(radio.mode,'angle');assert.ok(radio.identity.endsWith('PPM/0'));
+    ctx.model.push(row(131,[1400,1800,1000,1504,1000,1200,1500,1500,8,true,10],1040));
+    assert.equal(ppm.receiver(tripodTelemetry(ctx,1042),1042).mode,'acro');
+    ctx.model.push(row(122,[1,2,true,true,true,8,0,99,false],1050));
+    assert.equal(tripodTelemetry(ctx,1051).input,null);
+    assert.match(ap.sample(tripodTelemetry(ctx,1051),1051),/Receiver lost/);
+    assert.equal(sim.running,false);
+    ctx.model.push(row(22,[1900,1800,1500,1200,1500,1900,1500,1500],1060));
+    assert.match(ap.start(tripodTelemetry(ctx,1061),1061),/Lower throttle/);
+    assert.equal(ppm.receiver(tripodTelemetry(ctx,1280),1280),null);
+  }
+});
+
+test('staging a complete FC group preserves separate axes and detects external conflicting edits',()=>{
+  const panel={live:true,busy:false,base:new Map(),draft:new Map(),confirm:new Set(['axis-2']),
+    ctx:{group:id=>defaults[id]},info(){},refresh(){}};
+  const values=[1,2,3,4,5,6,.1,.2,.3];
+  ConfigPanel.prototype.stagePid.call(panel,2,values);
+  assert.deepEqual(ConfigPanel.prototype.snapshot.call(panel,2,defaults[2]),values);
+  assert.equal(panel.confirm.has('axis-2'),false);
+  const conflict=[...defaults[2]];conflict[3]=1;
+  assert.throws(()=>ConfigPanel.prototype.snapshot.call(panel,2,conflict),/changed/);
 });

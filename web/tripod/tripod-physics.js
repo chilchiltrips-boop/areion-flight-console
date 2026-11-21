@@ -1,5 +1,5 @@
 import {stepRatePid} from './rate-pid.js';
-import {unpackGains, validGains} from './gains.js';
+import {banks, terms, unpackGains, validGains} from './gains.js';
 import {defaults} from '../config-commands.js';
 /* F450 tripod educational dynamics. 250 Hz deterministic, physical motor thrust and
  * three-axis rigid-body rotational equations. No hardware/browser dependencies.
@@ -44,13 +44,18 @@ export function stopSimulator(s){
  for(const field of ['motors','motorCommands','motorRPM','motorRequestedRPM','motorOmega','motorThrust','motorTorque'])s[field].fill(0);
  s.pendingPID={};s.primeGains=s.modeChanged=false;s.vertical.thrust=s.vertical.ratio=0;
  s.motorSaturated.fill(false);s.lift=s.accumulator=0;s.rollRate=s.pitchRate=s.yawRate=0;s.gyroRoll=s.gyroPitch=s.gyroYaw=0;
- s.targetRollRate=s.targetPitchRate=s.targetYawRate=0;
+ s.targetRoll=s.trimRoll;s.targetPitch=s.trimPitch;s.targetRollRate=s.targetPitchRate=s.targetYawRate=0;
 }
-export function startSimulator(s){
- if(s.running)return true;if(s.throttle>1025)return false;
+export function startSimulator(s,virtualStartPulse){
+ if(s.running)return true;
+ if(virtualStartPulse===undefined && s.throttle>1025)return false;
+ if(virtualStartPulse!==undefined){
+  if(!Number.isFinite(virtualStartPulse)||virtualStartPulse<1000||virtualStartPulse>2000)return false;
+  s.throttle=virtualStartPulse;
+ }
  s.running=true;clearPID(s);resetMetrics(s);return true;
 }
-export function resetSimulator(s){for(const [bank,values] of Object.entries(s.pendingPID))applyPID(s,bank,values);stopSimulator(s);s.vertical.z=s.vertical.velocity=s.vertical.acceleration=0;s.vertical.stop='BOTTOM';s.roll=s.pitch=s.yaw=s.trimRoll=s.trimPitch=s.time=0;s.targetRoll=s.targetPitch=0;resetMetrics(s)}
+export function resetSimulator(s){Object.assign(s.pid,s.pendingPID);stopSimulator(s);s.vertical.z=s.vertical.velocity=s.vertical.acceleration=0;s.vertical.stop='BOTTOM';s.roll=s.pitch=s.yaw=s.trimRoll=s.trimPitch=s.time=0;s.targetRoll=s.targetPitch=0;resetMetrics(s)}
 export function setFlightMode(s,mode){
  if(!['angle','acro'].includes(mode))return false;
  if(s.mode!==mode){
@@ -66,12 +71,11 @@ export function setFlightMode(s,mode){
 export function setPID(s,bank,params){
  if(!Object.hasOwn(s.pid,bank)||!validGains(params))return false;
  if(s.running){s.pendingPID[bank]={...params};return true;}
- applyPID(s,bank,params);return true;
+ s.pid[bank]={...params};return true;
 }
-function applyPID(s,bank,params){
- if (['p','i','d'].every(key=>s.pid[bank][key]===params[key])) return true;
- s.pid[bank]={...params};
- if (s.running) {clearPID(s);s.primeGains=true;}
+export function setSimulatorGains(s,values){
+ if(!banks.every(bank=>validGains(values?.[bank])))return false;
+ for(const bank of banks)setPID(s,bank,values[bank]);
  return true;
 }
 export function calibrateLevel(s){s.trimRoll=clamp(s.roll,-45,45);s.trimPitch=clamp(s.pitch,-45,45);clearPID(s)}
@@ -107,7 +111,11 @@ function verticalStep(s){
 }
 export function stepSimulator(s){
  if(!s.running){verticalStep(s);return s;}
- for(const [bank,values] of Object.entries(s.pendingPID))applyPID(s,bank,values);s.pendingPID={};
+ const edits=Object.entries(s.pendingPID);
+ if(edits.length){
+  if(edits.some(([bank,values])=>terms.some(key=>s.pid[bank][key]!==values[key]))){clearPID(s);s.primeGains=true;}
+  Object.assign(s.pid,s.pendingPID);s.pendingPID={};
+ }
  const dt=STEP;s.time+=dt;
  const e=s.environment,settings=s.settings,enabled=s.throttle>=settings.throttleLow;
  const p=s.pulse&&s.time<s.pulse.until?s.pulse:null;
@@ -156,15 +164,16 @@ export function stepSimulator(s){
  tX+=biasX+wind*.060*Math.cos(.87*s.time);
  tZ+=biasZ+wind*.060*Math.sin(1.17*s.time);
  tY+=wind*.016*Math.cos(1.51*s.time);
- const pitchAccel=(tX-crossX-0.12*pitch)/Ixx,rollAccel=(tZ-crossZ-0.12*roll)/Izz,yawAccel=(tY-crossY-.028*yaw)/Iyy;
+ const pitchAccel=(tX+crossX-0.12*pitch)/Ixx,rollAccel=(tZ+crossZ-0.12*roll)/Izz,yawAccel=(tY+crossY-.028*yaw)/Iyy;
  s.pitchRate=clamp(s.pitchRate+pitchAccel*DEG*dt,-720,720);
  s.rollRate=clamp(s.rollRate+rollAccel*DEG*dt,-720,720);
  s.yawRate=clamp(s.yawRate+yawAccel*DEG*dt,-720,720);
  // Tripod is gimbaled: mechanical travel limits; it does not spring-level ACRO.
- // Exact YXZ Euler kinematics for the body-frame gyro rates (X=pitch,Y=yaw,Z=roll).
+ // In the pilot frame the nose is -Z. Positive RC commands lower the right wing,
+ // lower the nose and turn the nose right. The YXZ display angles are all negated.
  const cr=Math.cos(degToRad(s.roll)),sr=Math.sin(degToRad(s.roll)),sp=Math.sin(degToRad(s.pitch));
- const yawDot=(sr*s.pitchRate+cr*s.yawRate)/Math.cos(degToRad(s.pitch));
- const pitchDot=cr*s.pitchRate-sr*s.yawRate,rollDot=s.rollRate+sp*yawDot;
+ const yawDot=(-sr*s.pitchRate+cr*s.yawRate)/Math.cos(degToRad(s.pitch));
+ const pitchDot=cr*s.pitchRate+sr*s.yawRate,rollDot=s.rollRate-sp*yawDot;
  s.roll=clamp(s.roll+rollDot*dt,-45,45);
  s.pitch=clamp(s.pitch+pitchDot*dt,-45,45);
  s.yaw=wrap(s.yaw+yawDot*dt);

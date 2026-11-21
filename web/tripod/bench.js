@@ -87,10 +87,14 @@ export function mountTripod(slot,kind,state) {
   const bench=live?mountLive(ui,state):mountSimulator(ui,state);
   let raf=0,last=0,lastPaint=-Infinity,disposed=false,kit=null,modelStatus='';
   let scene;
-  try {scene=createScene(root.querySelector('[data-tp-stage]'),s=>{modelStatus=s;},(r,p)=>bench.tilt?.(r,p),signal);}
+  try {scene=createScene(root.querySelector('[data-tp-stage]'),s=>{modelStatus=s;},(r,p)=>bench.tilt?.(r,p),signal,()=>{fields.get('Camera view').value='orbit';});}
   catch {modelStatus='3D canvas unavailable';}
+  fields.get('Camera view').querySelector('[value=orbit]').disabled=true;
   fields.get('Camera view').addEventListener('change',e=>scene?.view(e.target.value),{signal});
-  fields.get('Airflow')?.addEventListener('change',e=>scene?.wash(e.target.checked),{signal});
+  if(fields.has('Airflow')){
+    const airflow=fields.get('Airflow');scene?.wash(airflow.value);
+    airflow.addEventListener('change',()=>scene?.wash(airflow.value),{signal});
+  }
   function frame(now){
     raf=0;
     if(disposed||document.hidden||!root.isConnected||root.closest('[hidden]'))return;

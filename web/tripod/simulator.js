@@ -1,10 +1,12 @@
-import {banks, terms, limits, validGains} from './gains.js';
+import {banks, terms, limits} from './gains.js';
 import {advanceSimulator, calibrateLevel, clamp, controlSettings, DEFAULT_PID, disturb, resetIntegrators, resetSimulator,
-  setFlightMode, setPID, startTuningPulse} from './tripod-physics.js';
-import {bindSticks, SimulatorInput} from './inputs.js';
+  setFlightMode, setSimulatorGains, startTuningPulse} from './tripod-physics.js';
+import {bindSticks, inputNames, PAD_TRAVEL, SimulatorInput} from './inputs.js';
 import {createTripodAudio} from './tripod-audio.js';
 import {simulateResponse} from './tripod-experiments.js';
 import {drawPlot,plotColors} from './plot.js';
+
+import {pulseForAxis} from '../stick-geometry.js';
 
 const axisTitle = key => key[0].toUpperCase()+key.slice(1);
 const axes=['roll','pitch','yaw'];
@@ -18,49 +20,77 @@ function traceSpec(chart, axis, mode) {
 }
 export function mountSimulator(ui, state) {
   const {root, field, action, out, signal} = ui, sim=state.sim;
-  const input=new SimulatorInput(sim);
+  const prefs=state.simControls??={source:'local',mode:sim.mode,axis:'roll',plotLoop:'auto',sound:true,volume:55,profile:'normal',airflow:'normal'};
+  const input=new SimulatorInput(sim,prefs.source);
   sim.settings=controlSettings();
-  let kit=null,bank='rateRoll',axis='roll',chart='response',graphFrozen=false,tilting=false,sound=false;
+  let kit=null,axis=prefs.axis,bank='',chart='response',graphFrozen=false,tilting=false;
   let samples=[],frozen=null,lastSample=-Infinity,graphEnd=sim.time;
-  const audio=createTripodAudio(msg=>{if(msg.includes('UNAVAILABLE')||msg.includes('FAILED'))out('status',msg);});
-  const gainFields=Object.fromEntries([...root.querySelectorAll('[data-gain]')].map(el=>[el.dataset.gain,el]));
+  const audio=createTripodAudio(message=>{
+    const status={'AUDIO UNAVAILABLE':'Audio unavailable','AUDIO INITIALIZATION FAILED':'Audio unavailable','TAP SOUND ON TO UNLOCK AUDIO':'Toggle sound to enable audio','AUDIO ACTIVE • MOTOR PITCH FOLLOWS RPM':'Playing · motor RPM'};
+    out('audioState',status[message]??'');
+  });
+  const gainFields=new Map([...root.querySelectorAll('[data-gain]')].map(el=>[el.dataset.gain,el]));
+  const kitInputLink=root.querySelector('[data-kit-input-link]');
   const pads=root.querySelectorAll('[data-pad]'), plot=root.querySelector('[data-tp-plot=sim]');
   const comparisonPlot=root.querySelector('[data-tp-plot=compare]');
   const applied=()=>({...sim.pid,...sim.pendingPID});
-  const controls=bindSticks(root,sim,()=>input.source==='local',signal,()=>sim.running?stop('Stopped'):start());
-  function gainEditor(){
-    for(const term of terms)gainFields[term].value=applied()[bank][term];
-    const term=field('Comparison term').value,base=applied()[bank][term];
-    const step={p:.5,i:1,d:.01}[term];
+  const controls=bindSticks(root,sim,()=>input.local,signal,()=>sim.running?stop('Stopped'):start(),drawControls);
+  function showGains(){
+    const gains=applied();
+    for(const [key,el] of gainFields){
+      const [name,term]=key.split('.');
+      el.value=state.simEdits?.[key]??gains[name][term];el.removeAttribute('aria-invalid');
+    }
+  }
+  function applyEdits(){
+    const next=Object.fromEntries(banks.map(name=>[name,{}]));
+    let invalid=null;
+    for(const [key,el] of gainFields){
+      const [name,term]=key.split('.'),value=el.valueAsNumber;
+      next[name][term]=value;
+      const ok=Number.isFinite(value)&&value>=0&&value<=limits[term];
+      if(ok)el.removeAttribute('aria-invalid');else{el.setAttribute('aria-invalid','true');invalid??=el;}
+    }
+    if(invalid){invalid.focus({preventScroll:true});out('gainNote',invalid.getAttribute('aria-label')+' must be between 0 and '+invalid.max+'.');return;}
+    if(setSimulatorGains(sim,next)){
+      state.simEdits={};updateComparison();
+      out('gainNote','All three axes applied to the simulator.');
+    }
+  }
+  function updateComparison(){
+    const term=field('Comparison term').value,base=applied()[bank][term],step={p:.5,i:1,d:.01}[term];
     field('A').max=field('B').max=limits[term];
     field('A').value=Number(Math.max(0,base*.65).toFixed(4));
     field('B').value=Number(Math.min(limits[term],Math.max(step,base*1.35)).toFixed(4));
+    out('compare',bank.replace(/^(rate|angle)/,(s)=>s==='rate'?'Rate · ':'Attitude · ')+' · '+term.toUpperCase());
+    drawPlot(comparisonPlot,[],{start:0,end:6.5,unit:bank.startsWith('angle')?'°':'°/s'});
   }
-  function selectBank(value){
-    bank=value;axis=bank.replace(/^(angle|rate)/,'').toLowerCase();state.lastAxis=axisTitle(axis);state.lastBank=bank;
-    field('Test axis').value=axis;field('PID bank').value=bank;
-    gainEditor();clearPlot();
+  function track(){
+    axis=prefs.axis;
+    bank=(prefs.plotLoop==='auto'&&sim.mode==='angle'&&axis!=='yaw'?'angle':'rate')+axisTitle(axis);
+    updateComparison();clearPlot();
   }
   function clearPlot(){
     samples=[];frozen=null;graphFrozen=false;lastSample=-Infinity;graphEnd=sim.time;
     action('freeze').textContent='Freeze graph';
-    const spec=traceSpec(chart,axis,sim.mode);
+    const spec=traceSpec(chart,axis,bank.startsWith('angle')?'angle':'acro');
     root.querySelector('[data-tp-legend]').replaceChildren(...spec.labels.map((label,i)=>{
       const el=document.createElement('span');el.textContent=label;el.style.setProperty('--ink',plotColors[i]);return el;
     }));
     drawResponse();
   }
   function mode(value){
-    if(sim.mode!==value){setFlightMode(sim,value);field('Flight mode').value=value;clearPlot();}
+    if(value && sim.mode!==value && setFlightMode(sim,value))track();
   }
   function stop(message){
     input.stop();controls.release();audio.stop();out('status',message);
     drawControls();
   }
   function start(){
+    if(!input.local && prefs.mode==='follow' && !input.receiver(kit,performance.now())?.mode){out('status','Waiting for receiver flight mode');return false;}
     const reason=input.start(kit,performance.now());
     out('status',reason||'Running');
-    if(!reason && sound)audio.start();
+    if(!reason && prefs.sound)audio.start();
     drawControls();return !reason;
   }
   function pulse(){
@@ -83,36 +113,61 @@ export function mountSimulator(ui, state) {
   }
   function drawResponse(){
     const data=graphFrozen?frozen:samples,end=graphFrozen?graphEnd:sim.time;
-    const spec=traceSpec(chart,axis,sim.mode);
+    const spec=traceSpec(chart,axis,bank.startsWith('angle')?'angle':'acro');
     drawPlot(plot,spec.fields.map(key=>({points:data.map(r=>[r.t-end,r[key]])})),{
       start:-10,end:0,unit:spec.unit??(bank.startsWith('rate')?'µs':'°/s')
     });
-    const rate=axis==='yaw'||sim.mode==='acro',errorKey=rate?'targetRate':'targetAngle',actual=rate?'rate':'angle';
+    const rate=bank.startsWith('rate'),errorKey=rate?'targetRate':'targetAngle',actual=rate?'rate':'angle';
     const rms=data.length?Math.sqrt(data.reduce((a,r)=>a+(r[errorKey]-r[actual])**2,0)/data.length):null;
     const peak=data.length?Math.max(...data.map(r=>Math.abs(r.rate))):null;
     out('error','RMS error '+num(rms)+(rate?' °/s':' °'));
     out('peak','Peak rate '+num(peak)+' °/s');
+    const key=axisTitle(axis),unit=rate?' °/s':'°';
+    const last=data.at(-1);
+    const target=graphFrozen?last?.[errorKey]:sim['target'+key+(rate?'Rate':'')];
+    const measured=graphFrozen?last?.[actual]:sim[axis+(rate?'Rate':'')];
+    out('command','Target '+num(target)+unit);out('measured','Measured '+num(measured)+unit);
   }
   function compare(){
     const term=field('Comparison term').value,values=['A','B'].map(k=>field(k).valueAsNumber);
     if(!values.every(v=>Number.isFinite(v)&&v>=0&&v<=limits[term])){out('compare','Enter A and B between 0 and '+limits[term]+'.');return;}
-    const result=simulateResponse({basePID:applied(),bank,gain:term,values,axis,settings:sim.settings,environment:{...sim.environment}});
-    const unit=result.mode==='angle'&&axis!=='yaw'?'°':'°/s';
+    const result=simulateResponse({basePID:applied(),bank,gain:term,values,axis,mode:sim.mode,readLoop:bank.startsWith('rate')?'rate':'angle',settings:sim.settings,environment:{...sim.environment}});
+    const unit=bank.startsWith('angle')?'°':'°/s';
     const [a,b]=result.results;
     drawPlot(comparisonPlot,[a,b].map(r=>({points:r.samples.map(s=>[s.t,s.actual])})),{start:0,end:6.5,unit});
     out('compare',axisTitle(axis)+' '+term.toUpperCase()+' · A (mint) RMS '+num(a.metrics.rms)+unit+' · B (amber) RMS '+num(b.metrics.rms)+unit+' · '+(result.scenario==='bias'?'constant bias':'target step'));
   }
   function drawControls(){
-    const local=input.source==='local',remote=kit?.input && kit.input.until>performance.now()?kit.input:null;
-    field('Simulator input').disabled=sim.running;field('Flight mode').disabled=!local;
-    action('run').disabled=sim.running || (!local && !remote);
-    action('stop').disabled=!sim.running; action('pulse').disabled=!local;
+    const local=input.local,remote=input.receiver(kit,performance.now());
+    const show=local||!!remote,knownMode=local||prefs.mode!=='follow'||!!remote?.mode;
+    field('Flight mode').options[2].disabled=local;
+    action('run').disabled=sim.running||(!local&&(!remote||!knownMode||remote.channels[2]>1025));
+    action('run').textContent=local&&!sim.running?'Run at '+input.virtualStartPulse()+' µs':'Run simulator';
+    action('stop').disabled=!sim.running;action('pulse').disabled=!local;
     action('load').disabled=!kit?.gains;
     field('Throttle').disabled=!local;field('Throttle').value=Math.round(sim.throttle);
-    out('receiver',local?'Keyboard / sticks':remote?remote.source+' receiver':'Waiting for receiver');
-    out('throttle',Math.round(sim.throttle)+' µs');
+    kitInputLink.hidden=local||!!remote;
+    const name=inputNames[input.source];
+    out('receiver',local?name:remote?remote.source+' · live':'Waiting for '+name);
+    const modeLabel=sim.mode==='angle'?'Angle':'Rate / Acro';
+    const follow=prefs.mode==='follow'?' · receiver switch':'';
+    let hint=modeLabel+follow;
+    if(!local && !remote)hint=kit?.input?'Kit input is '+kit.input.source+' · waiting for '+name:'Waiting for '+name;
+    else if(!knownMode)hint='Waiting for receiver flight mode';
+    else if(!local&&!sim.running&&remote.channels[2]>1025)hint+=' · lower throttle to start';
+    else if(sim.running&&sim.throttle<sim.settings.throttleLow)hint+=' · throttle below '+sim.settings.throttleLow+' µs';
+    else if(sim.running&&(Math.abs(sim.roll)>=44.9||Math.abs(sim.pitch)>=44.9))hint+=' · stand limit ±45°';
+    out('keys',local?'Arrow keys · roll / pitch   ·   A / D · yaw   ·   W / S · throttle':hint);
+    out('loopState',(knownMode?modeLabel:'Waiting for mode')+' · '+(sim.mode==='angle'?'attitude + rate':'rate loop'));
+    out('sourceMode',hint);
     const xy=[[sim.cmdYaw,(sim.throttle-1500)/500],[sim.cmdRoll,sim.cmdPitch]];
-    pads.forEach((pad,i)=>{const n=pad.firstElementChild;n.style.left=(50+xy[i][0]*39)+'%';n.style.top=(50-xy[i][1]*39)+'%';});
+    pads.forEach((pad,i)=>{
+      const knob=pad.firstElementChild;knob.hidden=!show;
+      knob.style.left=(50+xy[i][0]*100*PAD_TRAVEL)+'%';knob.style.top=(50-xy[i][1]*100*PAD_TRAVEL)+'%';
+      pad.setAttribute('aria-disabled',String(!local));pad.tabIndex=local?0:-1;
+    });
+    for(const [key,us] of [['throttle',sim.throttle],['yawCh',pulseForAxis(sim.cmdYaw)],['rollCh',pulseForAxis(sim.cmdRoll)],['pitchCh',pulseForAxis(sim.cmdPitch)]])
+      out(key,show?Math.round(us)+' µs':'—');
   }
   root.addEventListener('click',e=>{
     const key=e.target.closest('[data-tp-action]')?.dataset.tpAction;
@@ -124,16 +179,12 @@ export function mountSimulator(ui, state) {
       case 'tilt': tilting=!tilting;action('tilt').setAttribute('aria-pressed',String(tilting));break;
       case 'level':calibrateLevel(sim);out('status','Current position is virtual level');break;
       case 'integrator':resetIntegrators(sim);out('status','Virtual integrators reset');break;
-      case 'apply':{
-        const next=Object.fromEntries(terms.map(k=>[k,gainFields[k].valueAsNumber]));
-        if(!validGains(next)){out('gainNote','Enter valid P (0–100), I (0–500) and D (0–20).');break;}
-        setPID(sim,bank,next);state.lastAxis=axisTitle(axis);out('gainNote',bank.replace(/([A-Z])/,' $1')+' applied to simulator');break;
-      }
+      case 'apply':applyEdits();break;
       case 'load':case 'defaults':{
         const values=key==='load'?kit?.gains:DEFAULT_PID;
-        if(!values)break;
-        for(const name of banks)setPID(sim,name,values[name]);
-        gainEditor();out('gainNote',key==='load'?'Copied active kit gains into the simulator.':'Simulator defaults restored.');break;
+        if(!values||!setSimulatorGains(sim,values))break;
+        state.simEdits={};showGains();updateComparison();
+        out('gainNote',key==='load'?'Kit gains loaded into the simulator.':'Simulator defaults restored.');break;
       }
       case 'freeze':
         graphFrozen=!graphFrozen;frozen=graphFrozen?samples.slice():null;graphEnd=sim.time;
@@ -145,21 +196,38 @@ export function mountSimulator(ui, state) {
     const el=e.target;
     switch(el.dataset.tp){
       case 'Simulator input':
-        stop('Input selected');input.source=el.value;
-        sim.settings=el.value==='receiver'&&kit?controlSettings(kit.flight,kit.arming,kit.setup):controlSettings();
-        break;
-      case 'Flight mode':mode(el.value);break;
-      case 'Test axis':selectBank((sim.mode==='angle'&&el.value!=='yaw'?'angle':'rate')+axisTitle(el.value));break;
-      case 'PID bank':selectBank(el.value);break;
+        stop('Input selected');
+        input.source=prefs.source=el.value;
+        prefs.mode=input.local?sim.mode:'follow';
+        field('Flight mode').value=prefs.mode;
+        sim.settings=!input.local&&kit?controlSettings(kit.flight,kit.arming,kit.setup):controlSettings();
+        mirror(performance.now());drawControls();break;
+      case 'Flight mode':
+        prefs.mode=el.value;mode(el.value==='follow'?input.receiver(kit,performance.now())?.mode:el.value);
+        drawControls();break;
+      case 'Test axis':prefs.axis=el.value;track();break;
+      case 'Plot loop':prefs.plotLoop=el.value;track();break;
       case 'Plot':chart=el.value;clearPlot();break;
-      case 'Comparison term':gainEditor();break;
-      case 'Sound':sound=el.checked;if(sound&&sim.running)audio.start();else audio.stop();break;
+      case 'Comparison term':updateComparison();break;
+      case 'Motor sound profile':prefs.profile=el.value;audio.setProfile(el.value);break;
+      case 'Airflow':prefs.airflow=el.value;break;
+      case 'Sound':
+        prefs.sound=el.checked;
+        if(prefs.sound&&sim.running)audio.start();else audio.stop();
+        break;
     }
   },{signal});
   root.addEventListener('input',e=>{
     const el=e.target;
-    if(el.dataset.gain)out('gainNote','Edited · select Apply to simulator to test');
-    if(el.dataset.tp==='Throttle' && input.source==='local')sim.throttle=clamp(el.valueAsNumber,1000,2000);
+    if(el.dataset.gain){
+      (state.simEdits??={})[el.dataset.gain]=el.value;
+      out('gainNote','Edited · apply gains to test');
+    }
+    if(el.dataset.tp==='Throttle' && input.local){sim.throttle=clamp(el.valueAsNumber,1000,2000);drawControls();}
+    if(el.dataset.tp==='Volume'){
+      prefs.volume=el.valueAsNumber;audio.setVolume(prefs.volume/100);out('volume',prefs.volume+'%');
+      if(prefs.sound&&sim.running&&!audio.running)audio.start();
+    }
     if(el.dataset.env){
       sim.environment[el.dataset.env]=el.valueAsNumber;
       out(el.dataset.env,el.value+' '+el.dataset.unit);
@@ -168,22 +236,36 @@ export function mountSimulator(ui, state) {
   for(const el of root.querySelectorAll('[data-env]')){
     el.value=sim.environment[el.dataset.env];out(el.dataset.env,el.value+' '+el.dataset.unit);
   }
-  field('Flight mode').value=sim.mode;selectBank(state.lastBank??bank);drawControls();
+  function mirror(now){
+    if(input.local)return;
+    const remote=input.receiver(kit,now);
+    const reason=input.sample(kit,now);
+    if(reason){stop(reason);return;}
+    if(prefs.mode==='follow'){
+      if(remote?.mode)mode(remote.mode);
+      else if(sim.running)stop('Receiver flight mode lost');
+    }
+  }
+  field('Flight mode').value=prefs.mode;field('Simulator input').value=input.source;
+  field('Test axis').value=axis;field('Plot loop').value=prefs.plotLoop;
+  field('Sound').checked=prefs.sound;field('Motor sound profile').value=prefs.profile;
+  field('Volume').value=prefs.volume;out('volume',prefs.volume+'%');field('Airflow').value=prefs.airflow;
+  audio.setVolume(prefs.volume/100);audio.setProfile(prefs.profile);
+  showGains();track();drawControls();
   return {
-    get mirroring(){return input.source==='receiver';},
+    get mirroring(){return !input.local;},
     receive(value){
       kit=value;
-      if(input.source==='receiver'){
+      if(!input.local){
         if(kit)sim.settings=controlSettings(kit.flight,kit.arming,kit.setup);
-        if(sim.running){const reason=input.sample(kit,performance.now());if(reason)stop(reason);}
+        mirror(performance.now());
       }
     },
     tilt(r,p){if(tilting)disturb(sim,r,p);return tilting;},
     advance(now,dt){
-      if(input.source==='receiver' && kit?.mode && kit.input?.until>now)mode(kit.mode);
-      const reason=input.sample(kit,now);if(reason)stop(reason);
+      mirror(now);
       controls.update(dt);
-      if(sim.running){advanceSimulator(sim,dt);record();if(sound)audio.update(sim.motors,sim.motorRPM);}
+      if(sim.running){advanceSimulator(sim,dt);record();if(prefs.sound)audio.update(sim.motors,sim.motorRPM);}
     },
     paint(){
       drawControls();drawResponse();
