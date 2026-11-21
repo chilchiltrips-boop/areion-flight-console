@@ -9,9 +9,9 @@ export function node(tag, text, cls) {
 export const put=(el,text)=>{ if(el.textContent!==String(text)) el.textContent=text; };
 export const numeric=v=>typeof v==='number' && Number.isFinite(v) ? Number(v.toPrecision(6)).toString() : v==null ? '—' : String(v);
 export const active=ctx=>ctx?.state==='connected'||Boolean(ctx?.replay);
-export function downloadCsv(ctx) {
+export function downloadCsv(ctx, name='areion-telemetry.csv') {
   const url=URL.createObjectURL(new Blob([serialize(ctx.rows)],{type:'text/csv;charset=utf-8'}));
-  const link=node('a');link.href=url;link.download='areion-telemetry.csv';
+  const link=node('a');link.href=url;link.download=name;
   document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

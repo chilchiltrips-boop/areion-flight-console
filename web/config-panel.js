@@ -55,6 +55,7 @@ export class ConfigPanel {
     });
   }
   edit(node){
+    if(node.closest?.('[data-tripod]'))return;
     if(node.hasAttribute('data-confirm')){
       const key=node.dataset.confirm;if(node.checked)this.confirm.add(key);else this.confirm.delete(key);
       if(['frame','battery'].includes(key)&&!node.checked)this.stopMotor();
@@ -141,6 +142,23 @@ export class ConfigPanel {
     return copy;
   }
   clearFields(g,indices){for(const i of indices)this.draft.delete(g+':'+i);if(!Array.from(this.draft.keys()).some(k=>k.startsWith(g+':')))this.base.delete(g);}
+  stagePid(group,values,axis){
+    if(![2,3].includes(group)||!this.live||this.busy||this.motor)return;
+    const active=this.ctx.group(group);
+    if(!active||values.length!==active.length||!values.every(Number.isFinite))return;
+    const width=group===2?3:2;
+    if(!Number.isInteger(axis)||axis<0||axis>=width)return;
+    if(!this.base.has(group))this.base.set(group,[...active]);
+    const linked=axis<2&&this.confirm.has('axis-'+group);
+    for(let term=0;term<3;term++){
+      const index=term*width+axis;
+      this.draft.set(group+':'+index,values[index]);
+      if(linked)this.draft.set(group+':'+(term*width+1-axis),values[index]);
+    }
+    const label=linked?'Roll and pitch':['Roll','Pitch','Yaw'][axis];
+    this.info(label+' gains copied to the editor. Review and select Apply to FC.');
+    this.refresh(this.ctx);
+  }
   async saveEdits(op,g,indices){
     const before=await op.read(g);
     await op.store(g,this.snapshot(g,before,indices),before);this.clearFields(g,indices);

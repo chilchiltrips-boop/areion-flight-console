@@ -1,0 +1,7 @@
+The F450 tripod dynamics, rate controller, comparison experiments, assembly model and
+synthesized motor sounds are adapted from chilchiltrips-boop/dronelab at
+0101b6d77ed9750633baf991664f8fce274da8f6 (js/tripod-*.js and js/rate-pid.js).
+The local controller uses the A1 stick scales, PID bounds, four-motor mixer,
+throttle cutoff and output pulse limits from firmware/AreionBrowserAP. Mechanical
+loads, motor speeds and thrust are model estimates. Geometry and Three.js come
+from web/assembly. The hardware view uses native Areion telemetry and gain storage.
