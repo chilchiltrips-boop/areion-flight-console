@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CockpitSender,Controls,currentGuard,DEFAULT_KEYS,NEUTRAL,switchPulse,validKeys} from '../web/cockpit-controls.js';
+import {CockpitSender,Controls,currentGuard,transmitterView,DEFAULT_KEYS,NEUTRAL,switchPulse,validKeys} from '../web/cockpit-controls.js';
 import {signed,tilt,wrap} from '../web/cockpit-pfd.js';
 
 test('mouse spring return preserves throttle; keyboard assignments act on their mapped channels',()=>{
@@ -28,6 +28,7 @@ function kit(){
     rows.set(122,{at,values:[source,ready?source+1:0,false,false,ready,ready?8:0,20,owner,ready]});
     rows.set(120,{at,values:[armed,true,true,8,.004,2000,20,true,false,false]});
     rows.set(130,{at,values:[lock,!lock]});
+    rows.set(136,{at,values:[false,2,2,'']});
   }
   return {ctx,rows,packets,put,qualify:()=>{ready=true;}};
 }
@@ -67,5 +68,31 @@ test('cancelling the sender while ARM checks are pending sends no subsequent ARM
     const request=tx.arm();assert.equal(typeof openSetup,'function');
     tx.stop();openSetup([false,true]);await assert.rejects(request,/cancelled/);
     assert.equal(commands,0);
+  }finally{tx.stop();}
+});
+
+test('Flight Data enables the browser sticks for its USB or AP input and monitors the physical radio',()=>{
+  const k=kit(),view=source=>transmitterView(k.ctx,currentGuard(k.ctx,100),source);
+  for(const [path,source] of [['USB',2],['AP',1]]){
+    k.ctx.path=path;k.put(100,source);assert.equal(view(source),'local');
+    k.put(100,source,81);assert.equal(view(source),'monitor');
+    k.put(100,3-source);assert.equal(view(3-source),'monitor');
+    k.put(100,0);assert.equal(view(0),'ppm');
+  }
+  k.rows.delete(122);assert.equal(view(1),'waiting');
+  k.ctx.state='disconnected';assert.equal(view(null),'preview');
+  k.ctx.replay=true;assert.equal(view(0),'replay');
+});
+
+test('Flight Data ARM needs fresh saved gains; a pending save leaves the neutral sender available',()=>{
+  const k=kit(),c=new Controls(),tx=new CockpitSender(c,()=>k.ctx,assert.fail);
+  try{
+    k.qualify();k.put(100);tx.start(100);tx.ready=true;
+    for(const receipt of [[true,2,1,''],[false,2,1,''],[false,2,2,'SAVE_FAILED']]){
+      k.rows.set(136,{at:100,values:receipt});assert.equal(tx.canArm(100),false);assert.ok(tx.running);
+    }
+    k.rows.delete(136);assert.equal(tx.canArm(100),false);
+    k.put(100);assert.ok(tx.canArm(100));k.rows.get(136).at=-450;assert.equal(tx.canArm(100),false);
+    k.put(100);k.rows.get(120).values[7]=false;assert.equal(tx.canArm(100),false);
   }finally{tx.stop();}
 });

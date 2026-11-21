@@ -25,7 +25,17 @@ export function currentGuard(ctx,now) {
   const timeout=read(112,Infinity)?.[1]??250;
   const ready=Boolean(route&&input[1]===source+1&&input[source===1?3:8]&&input[4]&&input[5]===8&&input[6]<timeout);
   const lockClear=setup?.[1]===true&&setup[0]===false&&!setup[8];
-  return {setup,status,input,source,route,ready,lockClear,canStart:Boolean(route&&lockClear&&status?.[0]===false)};
+  const receipt=read(136,500);
+  const pidSaved=receipt?.[0]===false && Number.isInteger(receipt[1]) && receipt[1]===receipt[2] && receipt[3]==='';
+  return {setup,status,input,source,route,ready,lockClear,pidSaved,canStart:Boolean(route&&lockClear&&status?.[0]===false)};
+}
+// The receiver selection and the transport used to view telemetry are independent.
+export function transmitterView(ctx,guard,selected) {
+  if(ctx?.replay)return 'replay';
+  if(ctx?.state!=='connected')return 'preview';
+  if(selected===0)return 'ppm';
+  if(!guard.input||![1,2].includes(selected))return 'waiting';
+  return guard.route?'local':'monitor';
 }
 export class CockpitSender {
   constructor(controls,getContext,onStop) {
@@ -66,11 +76,11 @@ export class CockpitSender {
   canArm(now) {
     if(!this.running||!this.ready||this.arming)return false;
     const c=this.getContext(),g=currentGuard(c,now),v=this.controls.values;
-    return c?.link===this.link&&c?.link.session===this.owner&&g.canStart&&g.ready&&
+    return c?.link===this.link&&c?.link.session===this.owner&&g.canStart&&g.ready&&g.pidSaved&&g.status[7]===true&&
       c.model.get(122,now,250)&&v[2]<(c.model.get(4,now,Infinity)?.[0]??1050)&&[0,1,3].every(i=>v[i]>=1400&&v[i]<=1600);
   }
   async arm() {
-    if(!this.canArm(performance.now()))throw Error('ARM requires verified setup, low throttle and centered sticks.');
+    if(!this.canArm(performance.now()))throw Error('ARM requires verified setup, saved PID, low throttle and centered sticks.');
     const link=this.link,signal=this.abort.signal;
     this.arming=true;
     try{

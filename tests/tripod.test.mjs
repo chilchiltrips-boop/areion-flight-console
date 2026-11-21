@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 import {defaults} from '../web/config-commands.js';
 import {ConfigPanel} from '../web/config-panel.js';
 import {Instruments} from '../web/instruments.js';
-import {parseCsv,serialize} from '../web/records.js';
 import {packGains,unpackGains} from '../web/tripod/gains.js';
 import {bindSticks, SimulatorInput} from '../web/tripod/inputs.js';
-import {TripodRecording,tripodSession,tripodTelemetry} from '../web/tripod/telemetry.js';
-import {DEFAULT_PID,STEP,controlSettings,createSimulator,motorMix,setFlightMode,setPID,setSimulatorGains,
+import {tripodSession,tripodTelemetry} from '../web/tripod/telemetry.js';
+import {DEFAULT_PID,STEP,advanceSimulator,controlSettings,createSimulator,motorMix,setFlightMode,setPID,setSimulatorGains,
   startSimulator,stepSimulator} from '../web/tripod/tripod-physics.js';
-import {simulateResponse} from '../web/tripod/tripod-experiments.js';
+import {practiceStep,practiceTicks,practiceTrial} from '../web/tripod/tripod-experiments.js';
 
 import {Euler,Vector3} from '../web/assembly/three.module.min.js';
 import {setPilotAttitude} from '../web/tripod/scene.js';
@@ -69,31 +68,54 @@ test('A1 throttle cutoff, motor order, pulse limits and stick scales drive the v
   assert.ok(Math.abs(sim.time-6*STEP)<1e-12);
 });
 
-test('A/B uses the same deterministic virtual experiment on each selected axis',()=>{
-  for(const [axis,bank] of [['roll','angleRoll'],['pitch','ratePitch'],['yaw','rateYaw']]){
-    const opts={axis,bank,values:[.6,1.6],duration:2};
-    const [a,b]=simulateResponse(opts).results;
-    assert.ok(a.samples.some(s=>s.target>1));
-    assert.ok(a.samples.every(s=>Number.isFinite(s.actual)));
-    assert.notEqual(a.metrics.rms,b.metrics.rms);
-    assert.deepEqual(simulateResponse(opts).results[0],a);
+test('each practice exercise replays the same stick, load and disturbance for both gain sets',()=>{
+  const baseline=structuredClone(DEFAULT_PID),changed=structuredClone(baseline);
+  changed.rateRoll={p:2,i:24,d:.05};changed.ratePitch={p:1.8,i:12,d:.06};changed.rateYaw={p:4,i:30,d:.1};
+  for(const mode of ['angle','acro'])for(const axis of ['roll','pitch','yaw'])for(const exercise of ['step','load','bump']){
+    const setup={mode,axis,exercise,environment:{wind:4,gyroNoise:.1}};
+    const original=practiceTrial({...setup,gains:baseline}),tuned=practiceTrial({...setup,gains:changed});
+    assert.equal(original.unit,mode==='angle'&&axis!=='yaw'?'°':'°/s');
+    assert.deepEqual(original.samples.map(s=>s.target),tuned.samples.map(s=>s.target));
+    assert.equal(original.samples.some(s=>s.target>1),exercise==='step');
+    assert.ok(tuned.samples.every(s=>Number.isFinite(s.measured)));
+    assert.notEqual(original.rms,tuned.rms);
+    assert.deepEqual(original,practiceTrial({...setup,gains:baseline}));
   }
-  assert.throws(()=>simulateResponse({gain:'d',values:[1,30]}));
+  assert.deepEqual(baseline,DEFAULT_PID);
 });
 
-test('tripod telemetry uses accepted input and original FC IMU, control output and target groups',()=>{
+test('angle release levels roll and pitch; acro release stops the rate and retains tilt',()=>{
+  const base={gains:DEFAULT_PID,exercise:'step',environment:{gyroNoise:0}};
+  for(const axis of ['roll','pitch']){
+    const angle=practiceTrial({...base,axis,mode:'angle'}),acro=practiceTrial({...base,axis,mode:'acro'});
+    assert.ok(Math.abs(angle.finalAngle)<1);
+    assert.ok(acro.finalAngle>10&&Math.abs(acro.samples.at(-1).measured)<1);
+    const next=structuredClone(DEFAULT_PID);
+    next[axis==='roll'?'angleRoll':'anglePitch'].p=5;
+    assert.deepEqual(practiceTrial({...base,gains:next,axis,mode:'acro'}),acro);
+    assert.notEqual(practiceTrial({...base,gains:next,axis,mode:'angle'}).rms,angle.rms);
+    const noOuter={...base,gains:next,axis:'yaw'};
+    assert.deepEqual(practiceTrial({...noOuter,mode:'angle'}).samples.map(p=>p.target),practiceTrial({...noOuter,mode:'acro'}).samples.map(p=>p.target));
+  }
+});
+
+test('load exposes sustained error and stand limits cannot count as settling',()=>{
+  const gains=structuredClone(DEFAULT_PID);gains.rateYaw.i=0;
+  const load={mode:'acro',axis:'yaw',exercise:'load',environment:{gyroNoise:0}};
+  assert.ok(practiceTrial({...load,gains}).tail>practiceTrial({...load,gains:DEFAULT_PID}).tail);
+  const noControl=Object.fromEntries(Object.keys(gains).map(k=>[k,{p:0,i:0,d:0}]));
+  const hit=practiceTrial({mode:'angle',axis:'roll',exercise:'bump',gains:noControl,environment:{cgX:25}});
+  assert.ok(hit.limit);assert.equal(hit.settling,null);
+  assert.throws(()=>practiceTrial({...load,gains:{}}),/gains/);
+});
+
+test('optional input mirrors accepted receiver values with an expiry and no transport handle',()=>{
   const ctx=context(),kit=tripodTelemetry(ctx);
-  assert.equal(kit.session,'USB/15/42');
-  assert.equal(kit.kit,'A1-kit');assert.equal(kit.input.source,'PPM');
+  assert.equal(kit.session,'USB/15/42');assert.equal(kit.input.source,'PPM');
   assert.deepEqual(kit.input.channels,channels.slice(0,4));assert.equal(kit.input.until,1180);
-  assert.deepEqual(kit.rates,[1,2,3]);assert.deepEqual(kit.attitude,{roll:6,pitch:7,yaw:0});
-  assert.deepEqual(kit.motors,outputs.slice(3,7));
-  assert.deepEqual(kit.targets,{rate:[11,12,13],angle:[14,15]});
+  assert.deepEqual(kit.gains,DEFAULT_PID);assert.equal(kit.input.mode,'angle');
+  assert.equal('link' in kit,false);
   assert.equal(tripodTelemetry(ctx,1180).input,null);
-  ctx.model.push(row(130,[true,...setup.slice(1)],1181));
-  assert.equal(tripodTelemetry(ctx,1181).targets,null);
-  assert.equal(tripodTelemetry(ctx,1510).attitude,null);
-  assert.equal(tripodTelemetry(ctx,1510).motors,null);
   for(const patch of [{replay:true},{state:'stale'},{link:{fcSession:42,session:0}}]){
     assert.equal(tripodSession({...ctx,...patch}),null);
     assert.equal(tripodTelemetry({...ctx,...patch}),null);
@@ -112,47 +134,6 @@ test('live receiver mirroring needs fresh low throttle; signal and session chang
   assert.equal(sim.pid.rateRoll.i,300);
   assert.equal(input.start(kit,1010),'');
   assert.match(input.sample({...kit,input:{...kit.input,identity:'USB/15/88/PPM/0'}},1011),/changed/);
-});
-
-test('bench recordings preserve original packet times and stop at ten seconds or loss of session',()=>{
-  const ctx=context(),kit=tripodTelemetry(ctx),capture=new TripodRecording();
-  ctx.model.push(row(6,defaults[6],400));
-  assert.equal(capture.start({clock:ctx.clock,frames:ctx.model.frames},kit),true);
-  assert.equal(capture.rows.some(r=>r.group===6),false);
-  capture.packet(row(23,outputs,1050),kit.session);
-  capture.packet(row(21,imu,11010),kit.session);
-  capture.packet(row(21,imu,11011),kit.session);
-  assert.equal(capture.message,'Capture complete');assert.equal(capture.session,null);
-  const parsed=parseCsv(serialize(capture.rows));
-  assert.deepEqual(parsed.at(-1).values,imu);
-  assert.equal(parsed.at(-1).at,10010);
-  capture.start({clock:ctx.clock,frames:ctx.model.frames},kit);
-  capture.update(1080,null);assert.equal(capture.message,'Telemetry interrupted');
-  capture.start({clock:ctx.clock,frames:ctx.model.frames},kit);
-  const count=capture.rows.length;
-  capture.packet(row(21,imu,1050),'AP/99/8');
-  assert.equal(capture.rows.length,count);assert.equal(capture.message,'Kit changed');
-  assert.equal(capture.start(ctx,null),false);
-});
-
-test('copying virtual gains stages only the selected FC axis without issuing a link command',()=>{
-  const values=[1,2,3,4,5,6,.1,.2,.3];
-  const panel={live:true,busy:false,motor:null,base:new Map(),draft:new Map(),confirm:new Set(),
-    ctx:{group:id=>defaults[id]},info(){},refresh(){}};
-  ConfigPanel.prototype.stagePid.call(panel,2,values,0);
-  assert.deepEqual(panel.base.get(2),defaults[2]);
-  assert.deepEqual([...panel.draft.values()],[1,4,.1]);
-  const changedElsewhere=[...defaults[2]];changedElsewhere[2]=4;
-  const merged=ConfigPanel.prototype.snapshot.call(panel,2,changedElsewhere);
-  assert.equal(merged[2],4);assert.equal(merged[1],defaults[2][1]);assert.equal(merged[0],1);
-  panel.confirm.add('axis-2');
-  ConfigPanel.prototype.stagePid.call(panel,2,values,1);
-  assert.equal(panel.draft.get('2:0'),2);assert.equal(panel.draft.get('2:1'),2);
-  const conflict=[...defaults[2]];conflict[0]=7;
-  assert.throws(()=>ConfigPanel.prototype.snapshot.call(panel,2,conflict),/changed/);
-  assert.equal(panel.base.has(3),false);
-  panel.busy=true;ConfigPanel.prototype.stagePid.call(panel,3,defaults[3],1);
-  assert.equal(panel.base.has(3),false);
 });
 
 test('dual pointer gimbals keep independent endpoints, absolute throttle, and spring return',t=>{
@@ -226,9 +207,6 @@ test('whole gain matrices validate before staging and become active together on 
   assert.equal(setSimulatorGains(s,bad),false);assert.deepEqual(s.pendingPID,{});
   assert.ok(setSimulatorGains(s,all));assert.deepEqual(s.pid,DEFAULT_PID);
   stepSimulator(s);assert.deepEqual(s.pid,all);
-  const response=simulateResponse({mode:'angle',readLoop:'rate',axis:'pitch',bank:'ratePitch',duration:2});
-  assert.ok(response.results[0].samples.some(row=>Math.abs(row.target)>1));
-  assert.ok(response.results[0].samples.every(row=>row.actual===row.measuredRate&&row.target===row.outerRate));
 });
 
 test('PPM and AP follow their own fresh TRPY data over either connection; a new AP owner needs new channels',()=>{
@@ -258,13 +236,26 @@ test('PPM and AP follow their own fresh TRPY data over either connection; a new 
   }
 });
 
-test('staging a complete FC group preserves separate axes and detects external conflicting edits',()=>{
-  const panel={live:true,busy:false,base:new Map(),draft:new Map(),confirm:new Set(['axis-2']),
-    ctx:{group:id=>defaults[id]},info(){},refresh(){}};
-  const values=[1,2,3,4,5,6,.1,.2,.3];
-  ConfigPanel.prototype.stagePid.call(panel,2,values);
-  assert.deepEqual(ConfigPanel.prototype.snapshot.call(panel,2,defaults[2]),values);
-  assert.equal(panel.confirm.has('axis-2'),false);
-  const conflict=[...defaults[2]];conflict[3]=1;
+test('kit gain editor only saves when disarmed and detects an independently edited value',()=>{
+  const local={state:()=>({page:'pid'})};
+  const panel={live:true,armed:false,local,base:new Map([[2,defaults[2]]]),draft:new Map([['2:3',12]]),
+    confirm:new Set(['bench']),fresh:()=>null,ctx:{group:id=>defaults[id]}};
+  assert.ok(ConfigPanel.prototype.allowed.call(panel,'pid-2'));
+  panel.armed=true;assert.equal(ConfigPanel.prototype.allowed.call(panel,'pid-2'),false);
+  panel.armed=undefined;assert.equal(ConfigPanel.prototype.allowed.call(panel,'pid-3'),false);
+  assert.equal(ConfigPanel.prototype.snapshot.call(panel,2,defaults[2])[3],12);
+  const conflict=[...defaults[2]];conflict[3]=10;
   assert.throws(()=>ConfigPanel.prototype.snapshot.call(panel,2,conflict),/changed/);
+});
+
+test('timed 3D playback and the practice chart reach the same final pose across render frame rates',()=>{
+  for(const exercise of ['step','load','bump'])for(const frame of [.012,.04,.1]){
+    const sim=createSimulator(),axis='pitch';setFlightMode(sim,'acro');startSimulator(sim,1500);
+    let index=0;
+    while(index<practiceTicks)advanceSimulator(sim,frame,stand=>{
+      if(index<practiceTicks)practiceStep(stand,axis,exercise,index++);
+    });
+    const chart=practiceTrial({mode:'acro',axis,exercise,gains:DEFAULT_PID});
+    assert.equal(sim.pitch,chart.finalAngle);assert.equal(sim.pitchRate,chart.samples.at(-1).measured);
+  }
 });

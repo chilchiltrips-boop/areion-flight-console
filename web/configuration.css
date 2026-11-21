@@ -53,3 +53,5 @@
 .pid-matrix .cfg-btn:last-child{margin-left:auto}.cfg-pid .cfg-tracking canvas{min-height:200px;height:calc(100% - 4.3rem)}
 .cfg-stick-preview svg{display:block;width:100%;max-height:200px;background:#10212b;border-radius:.35rem}.cfg-stick-preview svg line,.cfg-stick-preview svg path{fill:none;stroke:#48636c}.cfg-stick-preview svg text{font:9px system-ui;fill:#c9dcdd}.cfg-stick-preview svg .cfg-curve-line{stroke:#74dcca;stroke-width:2}.cfg-stick-preview svg .cfg-curve-base{stroke:#f4ba7e;stroke-dasharray:4 3}.cfg-curve-dot{fill:#15312f;stroke:#8eedcf}.cfg-stick-preview input{width:100%;accent-color:#74dcca;margin:.45rem 0}
 @media(max-width:860px){.cfg-pid-matrices,.cfg-gain-plots{grid-template-columns:1fr}.cfg-pid-head,.cfg-pid-state{flex-wrap:wrap}}
+
+.cfg-pid-state a{color:#a1efdc;font-weight:650;text-underline-offset:.18em}

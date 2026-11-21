@@ -94,13 +94,16 @@ export class SetupKit {
   async pid(group,values,bench){
     requireThat(group===2||group===3,'Unknown PID group.');checkValue(group,values);
     const s=await this.read(120);
-    requireThat(s[7],'Storage unavailable.');requireThat(!s[0]||bench,'Confirm the secured tuning bench first.');
+    requireThat(s[7],'Storage unavailable.');requireThat(s[0]===false||bench===true,'Disarm the kit before saving PID.');
     const ack=await this.call('action',137,[group,Boolean(bench),...values,...(group===3?[0,0,0]:[])]);
     requireThat(['PID_SAVED','PID_APPLIED_PENDING_SAVE'].includes(ack[0]),'PID apply was not acknowledged.');
     const active=await this.read(group),receipt=await this.read(136);
     const samePid=(a,b)=>a.length===b.length&&a.every((x,i)=>Math.fround(x)===Math.fround(b[i]));
     requireThat(samePid(active,values),'PID active readback differs.');requireThat(!receipt[3],receipt[3]||'PID storage failed.');
-    if(receipt[0])return 'Applied to RAM. The kit will save after disarm.';
+    if(receipt[0]){
+      requireThat(bench===true,'PID storage is pending. Disarm and read the saved gains.');
+      return 'Applied to RAM. The kit will save after disarm.';
+    }
     requireThat(receipt[1]===receipt[2]&&samePid(await this.read(group,true),values),'Stored PID readback differs.');
     return 'PID saved and verified on the kit.';
   }

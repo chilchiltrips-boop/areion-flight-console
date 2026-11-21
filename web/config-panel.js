@@ -37,8 +37,7 @@ export const extras={
   modes:()=>ch(7,0,'Flight mode channel')+['Low position','High position'].map((title,i)=>field(title,editor(7,i+4,title,choices.mode))).join('')+act('arming','Save arming & flight modes'),
   finalize:()=>checked('final','Checks reviewed, propellers removed and motors stopped.')+act('final','Save & finish'),
   verify:()=>act('restart','Verify after restart'),
-  pid:g=>act('pid-'+g,'Apply '+(g===2?'rate':'angle')+' PID to FC'),
-  bench:()=>checked('bench','Aircraft secured on a tuning bench for armed PID changes.'),
+  pid:g=>act('pid-'+g,'Save '+(g===2?'rate':'angle')+' PID to FC'),
   response:()=>['Angle stick scale','Rate stick scale','Yaw stick scale'].map((s,i)=>num(7,i+1,s)).join('')+act('response','Save stick settings in setup'),
 };
 const receiptKey=id=>'areion.setup.receipt.'+id;
@@ -142,29 +141,6 @@ export class ConfigPanel {
     return copy;
   }
   clearFields(g,indices){for(const i of indices)this.draft.delete(g+':'+i);if(!Array.from(this.draft.keys()).some(k=>k.startsWith(g+':')))this.base.delete(g);}
-  stagePid(group,values,axis){
-    if(![2,3].includes(group)||!this.live||this.busy||this.motor)return;
-    const active=this.ctx.group(group);
-    if(!active||values.length!==active.length||!values.every(Number.isFinite))return;
-    const width=group===2?3:2;
-    if(axis!==undefined&&(!Number.isInteger(axis)||axis<0||axis>=width))return;
-    if(!this.base.has(group))this.base.set(group,[...active]);
-    if(axis===undefined){
-      values.forEach((value,i)=>this.draft.set(group+':'+i,value));
-      if(values.some((v,i)=>i%width===0&&v!==values[i+1]))this.confirm.delete('axis-'+group);
-      this.info('All '+(group===2?'rate':'attitude')+' gains copied. Review and select Apply to FC.');
-      this.refresh(this.ctx);return;
-    }
-    const linked=axis<2&&this.confirm.has('axis-'+group);
-    for(let term=0;term<3;term++){
-      const index=term*width+axis;
-      this.draft.set(group+':'+index,values[index]);
-      if(linked)this.draft.set(group+':'+(term*width+1-axis),values[index]);
-    }
-    const label=linked?'Roll and pitch':['Roll','Pitch','Yaw'][axis];
-    this.info(label+' gains copied to the editor. Review and select Apply to FC.');
-    this.refresh(this.ctx);
-  }
   async saveEdits(op,g,indices){
     const before=await op.read(g);
     await op.store(g,this.snapshot(g,before,indices),before);this.clearFields(g,indices);
@@ -175,7 +151,7 @@ export class ConfigPanel {
     if(key==='stop-esc')return this.live && s && [1,2,3,6].includes(s[3]);
     if(this.busy||this.pendingMotorStop||this.motor && key!=='record-min')return false;
     if(/^(read|saved|revert)-[23]$/.test(key))return this.live;
-    if(key==='pid-2'||key==='pid-3')return this.live&&this.armed!=null&&(!this.armed||check('bench'))&&Boolean(this.ctx.group(Number(key.slice(-1))));
+    if(key==='pid-2'||key==='pid-3')return this.live&&this.armed===false&&Boolean(this.ctx.group(Number(key.slice(-1))));
     if(key==='source'&&a.page!=='wizard')return this.live&&this.armed===false&&cfg;
     if(key==='restart')return this.live&&this.armed===false;
     if(!this.safe)return false;
@@ -204,7 +180,7 @@ export class ConfigPanel {
     for(const el of this.root.querySelectorAll('[data-field]')){
       const [g,i]=el.dataset.field.split(':').map(Number),v=this.draft.get(el.dataset.field)??ctx.group(g)?.[i]??(this.local.state().page==='pid'?defaults[g]?.[i]:null);
       if(el.type==='checkbox')el.checked=Boolean(v);else if(document.activeElement!==el)el.value=Number.isFinite(v)?String(Number(v.toFixed(6))):'';
-      el.disabled=!this.live||v==null||this.busy||Boolean(this.motor);
+      el.disabled=!this.live||v==null||this.busy||Boolean(this.motor)||([2,3].includes(g)&&this.armed!==false);
     }
     for(const el of this.root.querySelectorAll('[data-confirm]'))el.checked=this.confirm.has(el.dataset.confirm);
     for(const el of this.root.querySelectorAll('button[data-kit]'))el.disabled=!this.allowed(el.dataset.kit);
@@ -298,7 +274,7 @@ export class ConfigPanel {
       case 'response':await this.saveEdits(op,7,[1,2,3]);return;
       case 'pid-2':case 'pid-3':{
         const g=Number(key.slice(-1)),before=await op.read(g),values=this.snapshot(g,before);
-        const message=await op.pid(g,values,this.confirm.has('bench'));this.clearFields(g,values.map((_,i)=>i));return message;
+        const message=await op.pid(g,values,false);this.clearFields(g,values.map((_,i)=>i));return message;
       }
       case 'final':{
         const receipt=await op.finalize();this.receipt=receipt;this.entered=false;this.confirm.clear();

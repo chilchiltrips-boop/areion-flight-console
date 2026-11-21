@@ -9,7 +9,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from zebjus_areion_link import ControlSession, Link, NEUTRAL_CHANNELS, SerialTransport, UDP
-from zebjus_areion_link.control import disarm_and_read, get_input_status
+from zebjus_areion_link.control import SOURCE_NAMES, disarm_and_read, get_input_status
+from zebjus_areion_link.schema import SUPPORTED_FIRMWARE
 
 
 def run(link, source, seconds=5.0, arm=False):
@@ -21,11 +22,23 @@ def run(link, source, seconds=5.0, arm=False):
     if len(status) != 10 or status[0] is not False:
         raise RuntimeError("Start requires confirmed DISARMED status")
     version = link.read_group(125)[0]
-    if version != "2.5.0":
-        raise RuntimeError("Use matching 2.5.0 firmware for command-only USB/AP arming")
-    link.set_group(110, [source])
-    if link.read_group(110) != [source]:
-        raise RuntimeError("Selected input readback differs")
+    if version in SUPPORTED_FIRMWARE:
+        setup = link.read_group(130)
+        if setup[0] is not False or setup[1] is not True or setup[8] is not False:
+            raise RuntimeError("Finish kit setup and stop motor tests before starting the transmitter")
+        if link.read_group(134, saved=True)[1] != source or link.read_group(110) != [source]:
+            raise RuntimeError(f"Save {SOURCE_NAMES[source]} as the flight input in Flight Data, then disconnect the console")
+        if arm:
+            pending, active_revision, saved_revision, error = link.read_group(136)
+            if pending is not False or active_revision != saved_revision or error or status[7] is not True:
+                raise RuntimeError("Verify the saved kit PID gains before requesting ARM")
+    elif version == "2.5.0":
+        # Legacy kits have a volatile selector and no saved-input setup group.
+        link.set_group(110, [source])
+        if link.read_group(110) != [source]:
+            raise RuntimeError("Selected input readback differs")
+    else:
+        raise RuntimeError(f"No matching control example for firmware {version}")
     session = ControlSession(link)
     session.throttle_low = link.read_group(4, schema=2)[0]
     session.start(link.read_group(120), get_input_status(link), time.monotonic())

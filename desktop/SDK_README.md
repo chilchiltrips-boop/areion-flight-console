@@ -273,12 +273,9 @@ python examples/control_arrays.py --ap 192.168.4.1 --seconds 5
 python examples/control_arrays.py --usb /dev/cu.usbmodemYOURPORT --seconds 5
 ```
 
-The read example receives arrays without flight-input/arming changes. The
-control example explicitly selects USB/AP, sends neutral eight-channel arrays,
-then sends DISARM on exit. It never raises throttle. To bench-check an explicit
-ARM command with propellers removed and verified setup already complete, add
-`--arm`. Firmware rejects ARM while setup is locked. There is no takeoff command.
-Check the returned current status rather than treating an earlier ACK as current state.
+For an AP app or PyCharm, save the kit gains while disarmed and select **AP Wi-Fi** in Flight Data. Disconnect the web console so Python can own the link. For USB, select **USB** and release its port before starting the example. The 3.x sample uses the input already saved on the kit.
+
+The read example receives telemetry. The control example sends eight neutral channels at 50 Hz and disarms on exit. With setup complete, the optional `--arm` flag requests ARM at neutral throttle and verifies the reply. On a physical PPM receiver, use the configured radio gestures. The browser joystick and keyboard are available in Flight Data when the browser is the USB or AP sender.
 
 For applications that generate current channel values, import
 `ControlSession` and `NEUTRAL_CHANNELS` from `zebjus_areion_link`. Start using fresh

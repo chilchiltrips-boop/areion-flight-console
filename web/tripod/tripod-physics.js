@@ -194,9 +194,9 @@ export function stepSimulator(s){
  if(sign)m.previousSign=sign;
  return s;
 }
-export function advanceSimulator(s,dt){
+export function advanceSimulator(s,dt,step=stepSimulator){
  s.accumulator=Math.min(.25,s.accumulator+clamp(dt,0,.25));
- while(s.accumulator+1e-10>=STEP){stepSimulator(s);s.accumulator-=STEP}
+ while(s.accumulator+1e-10>=STEP){s.accumulator-=STEP;step(s)}
  return s;
 }
 export function getSnapshot(s){

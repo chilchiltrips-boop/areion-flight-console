@@ -5,13 +5,10 @@ import queue
 import threading
 from PySide6.QtCore import QObject, Signal
 from zebjus_areion_link import Link, RemoteError, SerialTransport, UDP
-from zebjus_areion_link.schema import DRONE_GROUPS
+from zebjus_areion_link.schema import DRONE_GROUPS, SUPPORTED_FIRMWARE
 from wifi_check import check_wifi
 from .model import validate_values, equal_values, matching_pid_gains
 
-# Explicitly qualified releases share the setup/PID/source contract. Unknown
-# releases still fail closed; each required group's schema is also checked below.
-SUPPORTED_FIRMWARE = frozenset(('3.1.0', '3.2.0'))
 
 class Jobs(QObject):
     finished = Signal(str, object, object)

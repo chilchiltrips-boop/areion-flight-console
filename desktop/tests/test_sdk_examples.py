@@ -17,10 +17,19 @@ class ExampleFC(FakeFC):
         self.commands = []
         self.version = "2.5.0"
         self.arm_error = None
+        self.setup = [False, True, 0, 4, 15, True, True, False, False]
+        self.pid_status = [False, 2, 2, ""]
+        self.saved_source = 1
 
     def read_group(self, group, **kwargs):
         if group == 125:
             return [self.version]
+        if group == 130:
+            return self.setup
+        if group == 134 and kwargs.get("saved"):
+            return [0, self.saved_source]
+        if group == 136:
+            return self.pid_status
         if group == 4:
             return [1050, 1900, 1100, 20, 5, 1, 15]
         return super().read_group(group, **kwargs)
@@ -111,6 +120,35 @@ class ExternalProjectTests(unittest.TestCase):
         self.assertEqual(self.fc.set_calls, [])
         self.assertEqual(self.fc.commands, [])
         self.assertEqual(self.fc.values, [])
+
+    def test_qualified_kits_use_saved_input_without_overwriting_it(self):
+        for version in ("3.1.0", "3.2.0"):
+            for source in (1, 2):
+                with self.subTest(version=version, source=source):
+                    self.fc = ExampleFC(self.clock)
+                    self.fc.version = version
+                    self.fc.saved_source = self.fc.selected = source
+                    self.assertGreater(self.run_example(source=source, arm=True), 0)
+                    self.assertEqual([name for name, _ in self.fc.commands], ["ARM", "DISARM"])
+                    self.assertEqual(self.fc.set_calls, [])
+
+    def test_source_lock_and_unsaved_gains_block_modern_example(self):
+        self.fc.version = "3.2.0"
+        self.fc.selected = 1
+        self.fc.saved_source = 0
+        with self.assertRaisesRegex(RuntimeError, "flight input"):
+            self.run_example()
+        self.fc.saved_source = 1
+        self.fc.setup[0] = True
+        with self.assertRaisesRegex(RuntimeError, "setup"):
+            self.run_example()
+        self.fc.setup[0] = False
+        self.fc.pid_status[0] = True
+        with self.assertRaisesRegex(RuntimeError, "saved kit PID"):
+            self.run_example(arm=True)
+        self.assertEqual(self.fc.commands, [])
+        self.assertEqual(self.fc.values, [])
+        self.assertEqual(self.fc.set_calls, [])
 
     def test_old_firmware_does_not_start_command_only_example(self):
         self.fc.version = "2.4.0"

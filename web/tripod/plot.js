@@ -34,7 +34,7 @@ export function drawPlot(canvas, traces, {start, end, unit, empty='Run the simul
   if(!hasData){c.textAlign='center';c.fillText(empty,(left+right)/2,(top+bottom)/2);return;}
   c.save();c.beginPath();c.rect(left,top,right-left,bottom-top);c.clip();
   traces.forEach((trace,i)=>{
-    c.strokeStyle=colors[i%colors.length];c.lineWidth=2;c.beginPath();let previous=null;
+    c.strokeStyle=trace.color??colors[i%colors.length];c.setLineDash(trace.dash??[]);c.lineWidth=2;c.beginPath();let previous=null;
     for(const [t,v] of trace.points){
       if(t<start||t>end||!Number.isFinite(v)){previous=null;continue;}
       if(previous===null||t-previous>.6)c.moveTo(x(t),y(v));else c.lineTo(x(t),y(v));

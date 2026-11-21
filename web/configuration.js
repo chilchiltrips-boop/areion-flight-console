@@ -4,8 +4,7 @@ import {airframe} from './airframe.js';
 import {drawResponse} from './pid-trace.js';
 import {CalibrationSession} from './calibration-session.js';
 import {sensorStudio,updateSensorStudio} from './sensor-studio.js';
-import {tripodSession,tripodTelemetry} from './tripod/telemetry.js';
-import {packGains} from './tripod/gains.js';
+import {tripodTelemetry} from './tripod/telemetry.js';
 
 const panes={wizard:'Setup wizard',input:'Input / receiver',imu:'IMU',esc:'ESC / motors',pid:'PID / settings'};
 const steps=['Safety & connect','Aircraft profile','Input & wiring','Sensors','PPM receiver','ESC calibration','Motor outputs','Arming & flight modes','Review & save','Verify after restart'];
@@ -15,8 +14,8 @@ const ends=['Not checked','Pending restart','Calibrating','Confirm ESC response'
 const modes=['Angle','Rate / Acro'];
 const axes=['Roll','Pitch','Yaw'];
 const pidTabs=[
-  ['pid','Gain tuning'],['pid-stick','Stick response'],['pid-receiver','Receiver & arming'],
-  ['pid-simulator','Tripod simulator'],['pid-tripod','Live tripod']
+  ['pid','Kit PID gains'],['pid-stick','Stick response'],['pid-receiver','Receiver & arming'],
+  ['pid-simulator','Tripod simulator']
 ];
 const motorNames=['Front left · CW','Front right · CCW','Rear right · CW','Rear left · CCW'];
 const blank='—';
@@ -115,7 +114,6 @@ export function mount(root) {
       const table=kvTable(['',...axes.slice(0,n)],['P · Proportional','I · Integral','D · Derivative'].map((k,i)=>'<tr><th scope="row">'+k+'</th>'+Array.from({length:n},(_,j)=>'<td>'+editor(g,i*n+j,k+' '+axes[j]+' '+(g===2?'rate':'angle'))+'</td>').join('')+'</tr>').join(''));
       return '<section class="cfg-card pid-matrix"><div class="pid-line"><h3>'+title+' <small>'+caption+'</small></h3><label><input type="checkbox" data-confirm="axis-'+g+'"> Link roll/pitch</label></div>'+table+'<div class="cfg-actions">'+
         ['read','saved','revert'].map((action,i)=>'<button type="button" class="cfg-btn" data-kit="'+action+'-'+g+'">'+['Read FC','Read saved','Revert'][i]+'</button>').join('')+
-        (subPID===4?'<button type="button" class="cfg-btn" data-stage-group="'+g+'" disabled>Copy all '+(g===2?'rate':'attitude')+' gains to editor</button>':'')+
         extras.pid(g)+'</div><small>'+reading('boardGain')+'</small></section>';
     };
     const tracking=()=>'<section class="cfg-card cfg-tracking"><div class="pid-line"><h3>Tracking response</h3><div>'+opt('Loop',['Rate','Angle'],responseAngle)+opt('Axis',axes.slice(0,responseAngle?2:3),responseAxis)+'</div></div><small>Measured <b class="cfg-meas">━</b> &nbsp; Target <b class="cfg-target">━</b> · '+(responseAngle?'degrees':'degrees / second')+' · 10 s</small><canvas data-response class="cfg-response" role="img" aria-label="Measured and target response over ten seconds"></canvas></section>';
@@ -125,13 +123,13 @@ export function mount(root) {
       ()=>matrices()+'<div class="cfg-gain-plots">'+tracking()+stickCurve()+'</div>',
       ()=>'<div class="cfg-pid-matrices">'+box('Flight mode & stick response',extras.response()+row('Input deadband','deadband')+extras.modes())+stickCurve()+'</div>',
       ()=>'<div class="cfg-pid-matrices">'+box('Receiver & arming',extras.arming()+act('go-arm','Open setup settings'))+box('Board configuration',row('Aircraft profile','profile')+row('Input source','selected')+row('Setup revision','revision')+row('Stored PID revision','pidSaved'))+'</div>',
-      ()=>benchSlot,()=>benchSlot+matrices()
+      ()=>benchSlot
     ];
     return '<section class="cfg-pid"><div class="cfg-pid-head"><h2><img src="./assets/console/launch-pid.svg" alt=""> PID tuning</h2><div class="cfg-tabs">'+
-      [0,3,4,1,2].map(i=>'<button type="button" data-pid="'+i+'" aria-pressed="'+(subPID===i)+'">'+pidTabs[i][1]+'</button>').join('')+'</div></div>'+
-      (subPID===3?'':'<div class="cfg-pid-state">'+reading('pidSummary')+extras.bench()+'</div>')+views[subPID]()+'</section>';
+      [0,3,1,2].map(i=>'<button type="button" data-pid="'+i+'" aria-pressed="'+(subPID===i)+'">'+pidTabs[i][1]+'</button>').join('')+'</div></div>'+
+      (subPID===3?'':'<div class="cfg-pid-state">'+reading('pidSummary')+'<span>Save gains while disarmed. Test from <a href="#flight" data-route="flight">Flight Data →</a></span>'+'</div>')+views[subPID]()+'</section>';
   }
-  function prepareTripod(slot,kind){
+  function prepareTripod(slot){
     if(!document.querySelector('link[data-tripod-css]')){
       const css=document.createElement('link');css.rel='stylesheet';css.href=new URL('./tripod/bench.css',import.meta.url);
       css.dataset.tripodCss='';document.head.append(css);
@@ -139,7 +137,7 @@ export function mount(root) {
     import('./tripod/bench.js').then(({createBenchState,mountTripod})=>{
       if(!slot.isConnected||root.hidden)return;
       benchState??=createBenchState();
-      tripod=mountTripod(slot,kind,benchState);
+      tripod=mountTripod(slot,benchState);
       if(last)update(last);
     }).catch(()=>{if(slot.isConnected)slot.textContent='Tripod view could not load. Reopen this tab to retry.';});
   }
@@ -159,7 +157,7 @@ export function mount(root) {
       (page==='wizard'?wizard():page==='pid'?pid():page==='imu'?sensorEntry()+'<div class="cfg-grid">'+sensorStudio()+'</div>'+sensorFinish():directControls()+'<div class="cfg-grid">'+({input:receiver,esc})[page]()+'</div>')+'<div role="status" class="cfg-operation" data-operation></div>';
     tabRoots=new Map();
     root.querySelectorAll('[data-r]').forEach(el=>{const key=el.dataset.r;if(!tabRoots.has(key))tabRoots.set(key,[]);tabRoots.get(key).push(el);});
-    const slot=root.querySelector('[data-tripod-slot]');if(slot)prepareTripod(slot,subPID===3?'sim':'live');
+    const slot=root.querySelector('[data-tripod-slot]');if(slot)prepareTripod(slot);
     if(last) update(last);
   }
   function show(name='wizard'){
@@ -193,7 +191,6 @@ export function mount(root) {
     }
     if(packet.group===120)statusRow=packet;
     if(tripod&&last){
-      if(benchState?.capture.session)benchState.capture.packet(packet,tripodSession(last));
       if(tripod.mirroring&&[7,22,112,120,122,131,132,134].includes(packet.group))tripod.receive(tripodTelemetry(last,packet.at));
     }
     if(sensor.active && last && sensorVisible()){
@@ -266,10 +263,7 @@ export function mount(root) {
     for(const [key,disabled] of Object.entries(buttons)){const b=root.querySelector('[data-act="'+key+'"]');if(b)b.disabled=!!disabled;}
     const rx=root.querySelector('[data-act="rx-capture"]');if(rx)rx.textContent=rxRun?'Stop capture':'Capture range';
     hardware.refresh(ctx);
-    if(tripod){
-      tripod.update(tripodTelemetry(ctx),{clock:ctx.clock,frames:ctx.model.frames,get rows(){return ctx.rows;}});
-      for(const btn of root.querySelectorAll('[data-stage-group]'))btn.disabled=!hardware.live||hardware.busy||!ctx.group(Number(btn.dataset.stageGroup));
-    }
+    tripod?.update(tripodTelemetry(ctx));
     if(sensorVisible()){
       const lockControl=root.querySelector('[data-sensor-lock]');
       if(lockControl)lockControl.hidden=hardware.lock;
@@ -305,11 +299,6 @@ export function mount(root) {
     const el=event.target.closest('button');if(!el||el.disabled)return;
     if(el.dataset.nav){last?.navigate('configuration/'+el.dataset.nav);return;}
     if(el.hasAttribute('data-pid')){last?.navigate('configuration/'+pidTabs[Number(el.dataset.pid)][0]);return;}
-    if(el.hasAttribute('data-stage-group')&&benchState){
-      const g=Number(el.dataset.stageGroup),values=packGains({...benchState.sim.pid,...benchState.sim.pendingPID},g);
-      if(values)hardware.stagePid(g,values);
-      return;
-    }
     if(el.closest('[data-tripod]'))return;
     if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){hardware.pageChange();restartView=false;resumeStep=false;rxRun=false;step=Number(el.dataset.step);draw();}return;}
     switch(el.dataset.act){

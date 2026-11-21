@@ -2,7 +2,7 @@ import {stickPoint} from './stick-geometry.js';
 import {airframe} from './airframe.js';
 import {cockpitMarkup} from './cockpit-markup.js';
 import {flightDisplay, signed, tilt, wrap} from './cockpit-pfd.js';
-import {CockpitSender, Controls, DEFAULT_KEYS, KEY_OPTIONS, MODE_NAMES, SOURCES, clamp, currentGuard, switchPulse, validKeys} from './cockpit-controls.js';
+import {CockpitSender, Controls, DEFAULT_KEYS, KEY_OPTIONS, MODE_NAMES, SOURCES, clamp, currentGuard, transmitterView, switchPulse, validKeys} from './cockpit-controls.js';
 import {mountTxEvidence} from './tx-evidence.js';
 
 const HEALTH = ['TELEMETRY','INPUT','PPM','AP','USB','IMU','OUTPUT','CONFIG','LOOP','MODE','ARM','STORAGE'];
@@ -85,7 +85,8 @@ export function mountFlightExtra(root){
     q('[data-view="map"]').hidden=!yes;q('[data-view="joystick"]').hidden=yes;
     buttons.map.setAttribute('aria-pressed',String(yes));buttons.joystick.setAttribute('aria-pressed',String(!yes));
   }
-  const canEdit=()=>!mapView&&!root.hidden&&!ctx?.replay&&ctx?.group(122,500)?.[0]!==0&&!keysDialog.open;
+  let txView='preview';
+  const canEdit=()=>!mapView&&!root.hidden&&['local','preview'].includes(txView)&&!keysDialog.open;
   function stopActive(reason){
     const wasRunning=sender.stop();
     if(wasRunning){message(reason);Promise.resolve(ctx?.stopKit?.()).catch(e=>message(e.message));}
@@ -215,7 +216,6 @@ export function mountFlightExtra(root){
   function refresh(c){
     ctx=c;const now=clock(),s=c.snapshot,imu=s.imu;
     const report=c.group(122,500),selected=report?.[0]??c.group(110)?.[0]??null;
-    const ppm=selected===0;
     const modelChanged=model!==c.model;
     if(modelChanged||!imu||prevStamp!=null&&imu.at<prevStamp)zero=0;
     const since=prevTime===null?50:Math.max(0,now-prevTime);prevTime=now;prevStamp=imu?.at;lastYaw=imu?.yaw;
@@ -223,36 +223,51 @@ export function mountFlightExtra(root){
       if(sender.running)stopActive('Flight controller session changed.');
       dirty=false;controls.reset();model=c.model;lastSource=null;
     }
+    const g=currentGuard(c,now),nextView=transmitterView(c,g,selected);
+    if(txView!==nextView || selected!==lastSource){
+      controls.reset();keyboardOnly=false;
+      for(const stick of all('.tx-stick'))finishPointer(stick);
+      if(keysDialog.open)keysDialog.close();
+    }
+    txView=nextView;
+    const monitor=!['local','preview'].includes(txView),ppm=txView==='ppm';
     if(modelChanged||selected!==lastSource){
-      if(ppm)controls.reset();
       if(selected!=null&&!dirty)input.value=String(selected);
       lastSource=selected;inspectSaved(c);
     }else if(!saving&&!sender.running&&now>=retrySavedAt){inspectSaved(c);}
     const live=c.state==='connected'&&!c.replay;
-    const status=s.status,mode=status?(status[1]?0:1):null,g=currentGuard(c,now);
+    const status=s.status,mode=status?(status[1]?0:1):null;
     const yaw=lastYaw==null?null:wrap(lastYaw-zero);
     value('source','Active: '+(['NONE','PPM','AP','USB'][report?.[1]]??'—')+' · Saved: '+(SOURCES[savedSource]??'—'));
     input.disabled=Boolean(c.replay||sender.running||saving);
     buttons['save-input'].disabled=!live||sender.running||saving||status?.[0]!==false||!status?.[7];
     value('input-note',selected==null?(live?'Awaiting input':c.replay?'Replay':'Offline'):SOURCES[selected]+' input');
-    value('tx-title',ppm?'Receiver monitor':'Virtual transmitter');
-    value('stick-note',ppm?(s.channels?'Live PPM channels':'Waiting for PPM'):c.replay?'Recorded channels':'Local TX channels');
-    root.classList.toggle('receiver-mode',ppm||c.replay);
+    value('tx-title',monitor?(c.replay?'Recorded transmitter':'Receiver monitor'):'Virtual transmitter');
+    const liveChannels=s.input.level==='good'?s.channels:null;
+    const receiverName=SOURCES[selected]??'receiver';
+    value('stick-note',c.replay?'Recorded channels':monitor?
+      (liveChannels?'Received '+receiverName+' channels':'Waiting for '+receiverName+' channels'):'Local TX channels');
+    value('pilot-note',ppm?'Use the radio sticks and its configured arm and disarm gestures.':
+      txView==='replay'?'Playback of the recorded input.':
+      txView==='monitor'?'Control from the selected '+receiverName+' sender. To use the browser, connect via that input.':
+      txView==='waiting'?'Waiting for the kit to identify its input and sender.':
+      'USB or AP · Start sender, then select ARM. For an AP app or Python sender, disconnect this console first.');
+    root.classList.toggle('receiver-mode',monitor);
     if(keyboardOnly&&keyboard.checked&&canEdit())controls.step(since/1000);
-    const local=ppm||c.replay?s.channels:controls.values,received=s.channels;
+    const received=c.replay?s.channels:liveChannels,local=monitor?received:controls.values;
     drawSticks(local);
     const settings=c.group(7),modeChannel=settings?.[0]??5;
     for(let i=0;i<8;i++){
       const n=local?.[i],pretty=n??'—';
       text(channelNames[i],(i+1)+' · '+(['Roll','Pitch','Thr','Yaw'][i]??(i+1===modeChannel?'Mode':'Aux')));
-      text(channelReadings[i],ppm||c.replay?pretty:pretty+' / '+(received?.[i]??'—'));
+      text(channelReadings[i],monitor?pretty:pretty+' / '+(received?.[i]??'—'));
       channelBars[i].style.width=clamp(((n??1000)-1000)/10,0,100)+'%';
-      if(i>=4){const slider=aux[i-4];slider.disabled=ppm||c.replay;slider.value=String(n??1000);text(slider.previousElementSibling,pretty);}
+      if(i>=4){const slider=aux[i-4];slider.disabled=monitor;slider.value=String(n??1000);text(slider.previousElementSibling,pretty);}
     }
-    value('channel-label',ppm?'Received PPM channels · µs':c.replay?'Recorded channels · µs':'TX command / received FC value');
+    value('channel-label',c.replay?'Recorded channels · µs':monitor?'Received '+receiverName+' channels · µs':'TX command / received FC value');
     value('switch-info',settings?'Mode switch · CH'+modeChannel:'Flight mode · offline');
     value('key-summary','Roll '+controls.keys.slice(0,2).join('/')+' · Pitch '+controls.keys.slice(2,4).join('/')+' · Throttle '+controls.keys.slice(4,6).join('/')+' · Yaw '+controls.keys.slice(6,8).join('/'));
-    keyboard.disabled=ppm||c.replay;buttons.keys.disabled=ppm||c.replay||sender.running;
+    keyboard.disabled=monitor;buttons.keys.disabled=monitor||sender.running;
     value('mode','FC MODE: '+(mode===null?'UNKNOWN / STALE':MODE_NAMES[mode]));
     for(const [i,name] of ['angle','rate'].entries()){
       buttons[name].disabled=!sender.ready||!g.ready||switchPulse(settings,i)==null;
@@ -272,6 +287,7 @@ export function mountFlightExtra(root){
     }
     const reason=!live&&!c.replay?'FC disconnected':!status?'Waiting for FC status':statusMap.IMU.level==='bad'?'IMU read fault':
       !status[5]?'Waiting for gyro calibration':setup?.[0]?'Setup lock active':setup&&!setup[1]?'Setup incomplete':
+      live&&selected>0&&!status[0]&&g.lockClear&&(!g.pidSaved||!status[7])?'Waiting for saved PID confirmation':
       tx.label==='TX OFF'?'PPM transmitter off':!report?'Waiting for input status':s.input.label;
     value('reason',reason);
     for(const t of tiles){

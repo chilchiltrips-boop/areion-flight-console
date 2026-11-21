@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {CockpitSender,Controls,NEUTRAL} from '../web/cockpit-controls.js';
 import {SetupKit,saveFlightInput,receiverValues,defaults} from '../web/config-commands.js';
 
 function kit(){
@@ -8,7 +9,7 @@ function kit(){
   active[130]=[false,true,0,4,15,true,true,false,false,1000,1000,1000,1000,2,'','A1'];
   const actions=[];
   const link={session:3,fcSession:9,
-    readGroup:async(g,{saved})=>{const v=(saved?flash:active)[g];if(!v)throw Error('NOT_SAVED');return [...v];},
+    readGroup:async(g,{saved}={})=>{const v=(saved?flash:active)[g];if(!v)throw Error('NOT_SAVED');return [...v];},
     setGroup:async(g,v)=>{active[g]=[...v];if(g===134)active[110]=[v[1]];},
     saveGroup:async g=>{flash[g]=[...active[g]];},
     action:async(g,v)=>{
@@ -44,7 +45,7 @@ test('first PPM selection inside setup and setup completion survive reconnect wi
 test('PID validates float32 gains, bench consent, storage and deferred status',async()=>{
  const {link,active,flash,actions}=kit(),op=new SetupKit(link),v=[...defaults[2]];v[6]=.0034578;
  assert.match(await op.pid(2,v,false),/saved and verified/);assert.equal(flash[2][6],Math.fround(v[6]));
- active[120][0]=true;await assert.rejects(op.pid(2,v,false),/bench/);
+ active[120][0]=true;await assert.rejects(op.pid(2,v,false),/Disarm/);
  assert.match(await op.pid(3,defaults[3],true),/save after disarm/);
  assert.deepEqual(actions.at(-1),[137,3,true,...defaults[3],0,0,0]);
 });
@@ -97,4 +98,38 @@ test('disconnect can wait for the same motor stop after a focus change',async()=
  confirm(['STOPPED']);
  await first;
  assert.equal(panel.suspend(),null);
+});
+
+test('a saved kit accepts an explicit Flight Data test over its selected USB or AP path',async()=>{
+  for(const [path,source] of [['USB',2],['AP',1]]){
+    const {active,flash,link}=kit(),op=new SetupKit(link);
+    const gains=[...defaults[2]];gains[0]=1.8;
+    assert.match(await op.pid(2,gains,false),/saved and verified/);
+    await saveFlightInput(link,source);
+    let armedCommands=0;const calls=[],controls=new Controls();
+    const configAction=link.action;
+    link.action=async(group,values)=>{
+      if(group!==123)return configAction(group,values);
+      assert.deepEqual(values,['ARM']);armedCommands++;active[120][0]=true;return ['ARMED'];
+    };
+    link.sendControl=v=>{calls.push([...v]);return true;};
+    const start=performance.now()-270,rows=new Map();
+    const ctx={state:'connected',path,link,replay:false,model:{frames:rows,
+      get(id,now,age){const r=rows.get(id);return r&&now>=r.at&&now-r.at<age?r.values:null;}}};
+    function telemetry(at,ready){
+      for(const g of [120,130,136])rows.set(g,{at,values:active[g]});
+      rows.set(122,{at,values:[source,ready?source+1:0,false,ready&&source===1,ready,ready?8:0,2,link.session,ready&&source===2]});
+    }
+    const tx=new CockpitSender(controls,()=>ctx,assert.fail);
+    try{
+      telemetry(start,false);tx.start(start);
+      for(const offset of [100,200,260]){telemetry(start+offset,true);tx.tick(start+offset);}
+      assert.ok(tx.ready);assert.equal(armedCommands,0);
+      assert.ok(calls.every(v=>v.every((x,i)=>x===NEUTRAL[i])));
+      await tx.arm();assert.equal(armedCommands,1);
+      controls.stick(false,.5,-.25,true);const now=performance.now();telemetry(now,true);tx.tick(now);
+      assert.deepEqual(calls.at(-1).slice(0,4),[1750,1375,1000,1500]);
+      assert.equal(flash[2][0],Math.fround(1.8));assert.equal(active[130][1],true);
+    }finally{tx.stop();}
+  }
 });

@@ -4,4 +4,4 @@ synthesized motor sounds are adapted from chilchiltrips-boop/dronelab at
 The local controller uses the A1 stick scales, PID bounds, four-motor mixer,
 throttle cutoff and output pulse limits from firmware/AreionBrowserAP. Mechanical
 loads, motor speeds and thrust are model estimates. Geometry and Three.js come
-from web/assembly. The hardware view uses native Areion telemetry and gain storage.
+from web/assembly. Practice runs locally. Optional receiver mirroring reads native Areion telemetry.

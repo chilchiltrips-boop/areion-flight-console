@@ -13,6 +13,7 @@ function write(id, label) {
 }
 function routeName(path) {
   const [name, sub=''] = String(path).replace(/^#\/?/, '').split('/');
+  if(name==='configuration' && sub==='pid-tripod')return ['flight',''];
   if(name==='recordings')return ['record',''];
   return Object.hasOwn(titles,name) ? [name, sub] : ['welcome',''];
 }
@@ -49,6 +50,7 @@ export class ConsoleShell {
   }
   show(path){
     const [page,sub]=routeName(path);
+    if(/^#\/?configuration\/pid-tripod$/.test(path))history.replaceState(history.state,'','#flight');
     const old=this.page;
     if(old!==page)this.modules.get(old)?.suspend?.();
     this.page=page;this.sub=sub;
