@@ -125,9 +125,18 @@
   font-size: .82rem;
   line-height: 1.35;
 }
-#ap-offline-status { font-weight: 650; padding-right: .42em; }
-#ap-offline-status[data-ready="true"] { color: #73dbc6; }
-.console-mast #ap-firmware-note { color: #b7c9d8; }
+.offline-tools { display:inline-flex; align-items:center; gap:.4rem; color:#f7c681; }
+#offline-state[data-state="ready"] { color:#83ddc8; }
+#offline-state[data-state="preparing"] { color:#c4d2df; }
+#offline-retry { padding:.18rem .45rem; font-size:.78rem; }
+#header-ap-info { overflow-wrap:anywhere; }
+#header-ap-info a { color:#a5f2e1; margin-inline-start:.65rem; }
+.console-mast #find-ap { white-space:nowrap; }
+@media (min-width: 800px) and (max-width: 1279px) {
+  .console-mast .nav { gap:4px; padding-inline:5px; }
+  .console-mast #header-ap { width:25ch; }
+}
+
 .traffic-meter {
   min-width: 114px;
   align-self: center;

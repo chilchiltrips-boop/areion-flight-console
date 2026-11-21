@@ -2,8 +2,30 @@
 const scope = self.registration.scope;
 const prefix = 'areion-console-' + new URL(scope).pathname + '-';
 const cacheName = prefix + '__VERSION__';
+const coreVersion = '__CORE__';
 const files = __FILES__;
+const integrity = __INTEGRITY__;
 const assets = new Set(files.map(path => new URL(path,scope).href));
+const signatures = new Map([...assets].map((url, i) => [url, integrity[i]]));
+const verifiedRequest = url => {
+  const signature = signatures.get(url);
+  return new Request(url, {cache:'reload', integrity:signature?.startsWith('sha256-') ? signature : ''});
+};
+const hasMarker = url => signatures.get(url)?.startsWith('areion-asset-');
+async function matchesMarkup(response, url) {
+  return response?.ok && (await response.clone().text()).includes(signatures.get(url));
+}
+async function fillCache(cache, urls) {
+  await cache.addAll(urls.map(verifiedRequest));
+  const invalid = [];
+  for (const url of urls.filter(hasMarker)) {
+    if (!(await matchesMarkup(await cache.match(url), url))) invalid.push(url);
+  }
+  if (invalid.length) {
+    await Promise.all(invalid.map(url => cache.delete(url)));
+    throw Error('Console documents do not match this release.');
+  }
+}
 const index = new URL('index.html',scope).href;
 const assembly = new URL('assembly/',scope).href;
 
@@ -29,7 +51,7 @@ self.addEventListener('install', event => {
     const cache = await caches.open(cacheName);
     // Validate the entire release before letting it take over a new browsing session.
     try {
-      await cache.addAll([...assets].map(url => new Request(url,{cache:'reload'})));
+      await fillCache(cache, [...assets]);
     } catch (error) {
       await caches.delete(cacheName);
       throw error;
@@ -53,12 +75,41 @@ self.addEventListener('activate', event => {
     await self.clients.claim();
   })());
 });
+// A ready registration can belong to an older release or have an evicted cache.
+// Report only this worker's own static files in this browsing partition.
+self.addEventListener('message', event => {
+  const reply = event.ports[0];
+  if (!reply || event.data?.type !== 'AREION_OFFLINE_CHECK') return;
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(cacheName);
+      const keys = new Set((await cache.keys()).map(request => request.url));
+      const missing = [...assets].filter(url => !keys.has(url));
+      if (missing.length && event.data.repair === true && event.data.core === coreVersion) {
+        await fillCache(cache, missing);
+        missing.length = 0;
+      }
+      reply.postMessage({core:coreVersion, cached:assets.size - missing.length, total:assets.size});
+    } catch {
+      reply.postMessage({error:'Offline files could not be verified or downloaded.'});
+    }
+  })());
+});
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== new URL(scope).origin) return;
-  const isEntry = event.request.mode === 'navigate' && (url.pathname === new URL(scope).pathname || url.pathname === new URL(index).pathname);
-  const asset = isEntry ? index : url.href;
+  url.search = '';
+  url.hash = '';
+  const asset = event.request.mode === 'navigate' && url.href === scope ? index : url.href;
   if (!assets.has(asset)) return;
-  event.respondWith(caches.open(cacheName).then(async cache => (await cache.match(asset)) || fetch(event.request)));
+  event.respondWith((async () => {
+    const cache = await caches.open(cacheName);
+    const hit = await cache.match(asset);
+    if (hit) return hit;
+    const response = await fetch(verifiedRequest(asset));
+    if (hasMarker(asset) && !await matchesMarkup(response, asset)) return Response.error();
+    if (response.ok) await cache.put(asset, response.clone()).catch(() => {});
+    return response;
+  })());
 });

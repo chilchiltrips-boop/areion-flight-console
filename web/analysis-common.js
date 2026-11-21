@@ -29,6 +29,7 @@ export function diagnostics(ctx) {
     fc_session:connected?ctx.link?.fcSession ?? null:null,
     link_frames:connected&&ctx.link?.stats?{tx:ctx.link.stats.sent,rx:ctx.link.stats.received}:null,
     received_packets:ctx.packetCount ?? ctx.rows.length, retained_packets:ctx.rows.length,
+    ...(ctx.browser ? {browser:ctx.browser} : {}),
     groups, events:ctx.events.slice(-30)
   };
 }

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Areion Flight Console</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; background:#102030; color:#d7e6eb; font:14px system-ui,sans-serif;
+      height:100vh; height:100dvh; display:flex; flex-direction:column; }
+    header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;
+      gap:.5rem; padding:.4rem .8rem; }
+    a { color:#91e5cf; } iframe { display:block; width:100%; flex:1; min-height:0; border:0; }
+  </style>
+</head>
+<body>
+  <header><span id="host-status" role="status">Preparing host page…</span>
+    <a href="https://chilchiltrips-boop.github.io/areion-flight-console/" target="_blank" rel="noopener">Open console in a tab</a></header>
+  <iframe title="Areion Flight Console"
+    src="https://chilchiltrips-boop.github.io/areion-flight-console/"
+    allow="serial; local-network; local-network-access; clipboard-write"></iframe>
+  <script src="./host.js"></script>
+</body>
+</html>

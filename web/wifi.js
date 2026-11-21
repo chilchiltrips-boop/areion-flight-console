@@ -72,9 +72,11 @@ export class WifiPort {
         this.pending = {id:this.serial, at:now};
         try { socket.send(header(POLL, this.serial)); } catch { fail('AP Wi-Fi disconnected.'); }
       };
-      this.openTimer = setTimeout(() => fail(errorHint), 8000);
+      this.openTimer = setTimeout(() => fail(errorHint), 30000);
       socket.onopen = () => {
         if (socket.protocol !== SUBPROTOCOL) return fail(errorHint);
+        clearTimeout(this.openTimer);
+        this.openTimer = setTimeout(() => fail(errorHint), 3000);
         poll();
         if (this.socket === socket) this.pollTimer = setInterval(poll, POLL_MS);
       };
@@ -87,7 +89,9 @@ export class WifiPort {
           return fail('Unexpected browser AP response.');
         const now = performance.now();
         if (now - pending.at > MAX_ROUND_TRIP_MS) return fail('AP telemetry arrived too late. Reconnect the kit.');
-        this.credit = {value:view.getUint32(5), at:pending.at};
+        const ticket = view.getUint32(5);
+        if (!ticket) return fail('Invalid browser AP ticket.');
+        this.credit = {value:ticket, at:pending.at};
         this.pending = null;
         if (!ready) { ready = true; clearTimeout(this.openTimer); this.cancelOpen = null; resolve(); }
         if (data.byteLength > 9 && this.readController) {
@@ -130,4 +134,42 @@ export class WifiPort {
     if (this.cancelOpen) this.cancelOpen();
     else this.shutdown();
   }
+}
+
+// Discovery uses the gateway's existing poll/reply only. It does not issue HELLO,
+// take the flight-controller lease or transmit a channel or configuration frame.
+export async function findApGateway(address, {signal, fallback = DEFAULT_AP_URL} = {}) {
+  const candidates = new Set([apUrl(address), apUrl(fallback)]);
+  let lastError;
+  for (const url of candidates) {
+    signal?.throwIfAborted();
+    const port = new WifiPort(url);
+    const aborted = () => { void port.close(); };
+    signal?.addEventListener('abort', aborted, {once:true});
+    let closed, found = false;
+    try {
+      const opening = port.open();
+      const socket = port.socket;
+      if (socket) {
+        closed = new Promise(resolve => socket.addEventListener('close', resolve, {once:true}));
+      }
+      await opening;
+      found = true;
+    } catch (error) {
+      lastError = error;
+    } finally {
+      signal?.removeEventListener('abort', aborted);
+      await port.close();
+      // The kit has one browser socket. Let it release the discovery connection
+      // before enabling Connect, even when the browser loses the closing reply.
+      if (closed) {
+        let timer;
+        try { await Promise.race([closed, new Promise(resolve => { timer = setTimeout(resolve, 1100); })]); }
+        finally { clearTimeout(timer); }
+      }
+    }
+    signal?.throwIfAborted();
+    if (found) return url;
+  }
+  throw lastError;
 }

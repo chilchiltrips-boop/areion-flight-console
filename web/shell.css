@@ -47,3 +47,18 @@ body[data-page=flight] main{max-width:none;padding:10px clamp(10px,1vw,22px) 6px
 .console-status{padding:.35rem .7rem;margin:.5rem 0 0;border:1px solid #304358;border-radius:5px;background:#162738;color:#bdcfd8;min-height:27px}
 .console-status span:last-child{margin-left:auto}
 body[data-page=welcome] .console-status:has(#session-status:empty){display:none}
+
+/* Let the actual header and iframe height set the available workspace. */
+@media (min-width: 800px) {
+  body[data-page="welcome"] { display:flex; flex-direction:column; min-height:100dvh; }
+  body[data-page="welcome"] main { display:flex; width:100%; flex:1; flex-direction:column; min-width:0; }
+  body[data-page="welcome"] #welcome-page { flex:1; height:auto; min-height:clamp(420px,64dvh,680px); }
+  body[data-page="welcome"] .launcher { min-height:145px; }
+  body[data-page="welcome"] .welcome-summary { flex:3; }
+}
+html[data-embedded="true"] main { min-width:0; }
+@media (min-width:800px) and (max-height:740px) {
+  html[data-embedded="true"] main { padding:7px 10px; }
+  html[data-embedded="true"] #welcome-page { padding:14px; gap:10px; }
+  html[data-embedded="true"] .welcome-summary { min-height:165px; padding:12px 15px; }
+}

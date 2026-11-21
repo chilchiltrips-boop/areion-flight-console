@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile,readdir,access} from 'node:fs/promises';
+import {readFile,readdir,access,mkdtemp,rm} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
 import {relative,dirname,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {connectionReadout} from '../web/system.js';
@@ -108,9 +110,11 @@ test('Firmware read uses native group 125 and ignores a response from the previo
   pane.update({...next,replay:true,state:'replay'});assert.equal(read.disabled,true);
 });
 
-test('published entry points and page modules resolve their static dependencies within web/',async()=>{
-  const web=fileURLToPath(new URL('../web/',import.meta.url));
-  const files=(await readdir(web)).filter(name=>/\.(js|css|html)$/.test(name));
+test('published entry points and nested page modules resolve their dependencies in the built release',async t=>{
+  const web=await mkdtemp(resolve(tmpdir(),'areion-assets-'));
+  t.after(()=>rm(web,{recursive:true,force:true}));
+  execFileSync(process.execPath,[fileURLToPath(new URL('../scripts/build-pages.mjs',import.meta.url)),web]);
+  const files=(await readdir(web,{recursive:true})).filter(name=>/\.(js|css|html)$/.test(name) && !name.endsWith('.min.js'));
   const targets=new Set();
   for(const file of files){
     const text=await readFile(resolve(web,file),'utf8');

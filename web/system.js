@@ -21,7 +21,13 @@ export function connectionReadout(ctx) {
     ['Flight input',ctx.snapshot.source || '—'],
     ['Latest FC report',age],
     ['Received packets',(ctx.packetCount ?? ctx.rows.length).toLocaleString()],
-    ['FC access point',wifi?(wifi[0]?wifi[1]+':'+wifi[2]+' · UDP':'Offline'):'—']
+    ['FC access point',wifi?(wifi[0]?wifi[1]+':'+wifi[2]+' · UDP':'Offline'):'—'],
+    ...(ctx.browser ? [
+      ['Window',ctx.browser.embedded ? 'Embedded console' : 'Standalone console'],
+      ['Offline console',ctx.browser.offline.detail],
+      ['USB access',ctx.browser.usb || 'Available on request'],
+      ['AP gateway',ctx.browser.ap || 'Find or connect from the header']
+    ] : [])
   ];
 }
 
@@ -113,7 +119,7 @@ export function mount(root){
       }
       const open=['opening','handshake','connected','stale'].includes(ctx.state);
       put(connect,open?'Disconnect':'Connect '+(ctx.path || 'USB'));
-      connect.disabled=ctx.replay;
+      connect.disabled=ctx.replay || (!open && !!(ctx.path === 'AP' ? ctx.browser?.ap : ctx.browser?.usb));
     }
   }
   filter();select('values');

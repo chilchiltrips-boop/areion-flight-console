@@ -1,4 +1,6 @@
 import {GrantedPorts} from './ports.js';
+import {browserAccess} from './browser-access.js';
+import {DEFAULT_AP_URL, findApGateway} from './wifi.js';
 
 const ROUTES = [
   ['welcome', 'Welcome'], ['assembly', 'Assembly'], ['flight', 'Flight Data'], ['configuration', 'Configuration'],
@@ -6,7 +8,6 @@ const ROUTES = [
 ];
 const OPEN = new Set(['opening', 'handshake', 'connected', 'stale']);
 const BUSY = new Set(['opening', 'handshake']);
-const AP_DEFAULT = 'ws://192.168.4.1:8081/areion';
 
 function write(element, value) {
   if (element.textContent !== value) element.textContent = value;
@@ -67,11 +68,11 @@ function navMarkup([route, label]) {
     '><img src="./assets/console/nav-'+route+'.svg" alt="">'+label+'</button>';
 }
 
-export function mountHeader(root, {connect, disconnect, stop, notice = () => {}, apSupported = false, apDefault = AP_DEFAULT}) {
+export function mountHeader(root, {connect, disconnect, stop, notice = () => {}, apSupported = false, apDefault = DEFAULT_AP_URL, access = browserAccess(window), retryOffline = () => {}}) {
   root.classList.add('console-mast');
   root.innerHTML = `
     <div class="top-line"><div class="identity"><strong>AREION</strong><span>FC A1 · Web Console</span></div>
-      <div class="head-actions"><span id="link-state" role="status">OFFLINE</span><span id="top-arm">ARM UNKNOWN</span>
+      <div class="head-actions"><div class="offline-tools"><span id="offline-state" role="status">Preparing offline…</span><button id="offline-retry" type="button" hidden>Retry</button></div><span id="link-state" role="status">OFFLINE</span><span id="top-arm">ARM UNKNOWN</span>
         <button id="header-stop" type="button" disabled><span aria-hidden="true">■</span> DISARM / STOP</button>
       </div>
     </div>
@@ -87,12 +88,13 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
           </div>
         </div>
         <input type="url" id="header-ap" aria-label="Kit WebSocket address" title="Kit WebSocket address" aria-describedby="header-ap-info" spellcheck="false" autocomplete="off" hidden>
+        <button type="button" id="find-ap" hidden>Find kit</button>
         <button type="button" class="primary" id="connect">Connect</button>
         <button type="button" id="disconnect" aria-label="Disconnect the kit" title="Disconnect the kit" disabled>×</button>
       </div>
     </div>
-    <div id="header-ap-info" hidden><span id="ap-offline-status" role="status"></span>
-      <span id="ap-firmware-note">Requires WebSocket-enabled kit firmware. Stock 3.2 uses UDP.</span></div>`;
+    <div id="header-ap-info" hidden><span id="hardware-hint" role="status"></span>
+      <a id="open-console" target="_blank" rel="noopener" hidden>Open console in a tab</a></div>`;
 
   const find = selector => root.querySelector(selector);
   const primary = find('#connect'), cancel = find('#disconnect'), halt = find('#header-stop');
@@ -100,30 +102,33 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
   const menu = find('#header-port-menu'), endpoint = find('#header-port'), usbWrap = find('.port-wrap');
   const apAddress = find('#header-ap'), apInfo = find('#header-ap-info'), addPort = find('.add-port');
   const options = find('.port-options'), empty = find('.port-empty'), meter = find('.traffic-meter');
-  const offlineStatus = find('#ap-offline-status');
+  const offlineStatus = find('#offline-state'), retry = find('#offline-retry'), scan = find('#find-ap');
+  const hint = find('#hardware-hint'), standalone = find('#open-console');
   const traffic = new TrafficMeter();
   let storage;
   try { storage = localStorage; } catch { /* Private mode can restrict storage. */ }
-  const catalog = new GrantedPorts(navigator.serial, storage, drawPorts);
+  const catalog = new GrantedPorts(access.serial, storage, drawPorts);
   let state = 'offline', pending = false, stopping = false, attempt = 0, lastCtx = null, activeEndpoint = null;
   let pendingPort = null, titleUpdatedAt = -Infinity;
-  let lastArmStatus = '';
+  let lastArmStatus = '', scanMessage = '', probe = null;
+  let offline = {state:'preparing', detail:'Preparing offline files.'};
+  const apIssue = access.apIssue || (!apSupported ? 'This kit needs browser AP firmware with WebSocket support.' : '');
   const buttons = new Map();
   apAddress.value = apDefault;
   if (apSupported) {
     try { apAddress.value = storage?.getItem('areion.ap.endpoint.v1') || apDefault; } catch {}
   }
-  if (!apSupported) {
-    transport.options[1].title = 'This kit currently supports UDP over AP Wi-Fi.';
-    find('#ap-firmware-note').textContent = 'This kit uses UDP for AP Wi-Fi. Connect with USB in this browser.';
+  const labels = {preparing:'Preparing offline…', ready:'Offline ready', failed:'Offline incomplete',
+    unavailable:'Offline unavailable', update:'Offline update pending'};
+  function setOffline(value) {
+    offline = value;
+    write(offlineStatus, labels[value.state]);
+    offlineStatus.dataset.state = value.state;
+    offlineStatus.title = value.detail;
+    retry.hidden = value.state !== 'failed';
+    drawState();
   }
-
-  function showOfflineStatus() {
-    const ready = document.documentElement.dataset.offlineReady === 'true';
-    offlineStatus.hidden = !apSupported;
-    offlineStatus.dataset.ready = String(ready);
-    write(offlineStatus, ready ? 'Ready for kit Wi-Fi.' : 'Open this page online before joining kit Wi-Fi.');
-  }
+  retry.addEventListener('click', retryOffline);
 
   function closeMenu(restoreFocus = false) {
     if (menu.hidden) return;
@@ -215,13 +220,25 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
       armPill.dataset.armed = String(arm.startsWith('ARMED'));
     }
     write(primary, busy ? 'Connecting…' : live || state === 'stale' ? 'Reconnect' : 'Connect');
-    primary.disabled = busy || (ap && !apSupported);
-    cancel.disabled = !open && !pending;
+    const issue = ap ? apIssue : access.usbIssue;
+    primary.disabled = busy || !!probe || !!issue;
+    cancel.disabled = !open && !pending && !probe;
     halt.disabled = stopping || !['connected','stale'].includes(state) || replay;
     transport.disabled = open || pending;
-    endpoint.disabled = open || pending;
-    apAddress.disabled = open || pending || !apSupported;
-    usbWrap.hidden = ap; apAddress.hidden = !ap; apInfo.hidden = !ap || live;
+    endpoint.disabled = open || pending || !!access.usbIssue;
+    apAddress.disabled = open || pending || !!probe || !!apIssue;
+    scan.hidden = !ap;
+    scan.disabled = open || pending || !!probe || !!apIssue;
+    write(scan, probe ? 'Finding…' : 'Find kit');
+    usbWrap.hidden = ap; apAddress.hidden = !ap;
+    const linkHint = issue || (ap && !open ? scanMessage || 'Join the kit in your computer’s Wi-Fi settings, then find it or connect.' : '');
+    const offlineHint = ['unavailable', 'failed', 'update'].includes(offline.state) ? offline.detail : '';
+    const showStandalone = access.embedded && !!(issue || offlineHint);
+    const help = [linkHint, offlineHint].filter(Boolean).join(' ');
+    write(hint, help);
+    apInfo.hidden = !help;
+    standalone.hidden = !showStandalone;
+    if (showStandalone && standalone.href !== location.href) standalone.href = location.href;
     if (ap || endpoint.disabled) closeMenu();
   }
 
@@ -272,6 +289,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
 
   async function end() {
     if (cancel.disabled) return;
+    if (probe) { probe.abort(); return; }
     attempt++; pending = false; pendingPort = null; activeEndpoint = null;
     try { await disconnect(); }
     catch (error) { notice(error.message || 'Disconnect failed.'); }
@@ -287,15 +305,35 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     catch (error) { notice(error.message || 'Stop command failed.'); }
     finally { stopping = false; drawState(); }
   });
-  transport.addEventListener('change', drawState);
+  scan.addEventListener('click', async () => {
+    if (scan.disabled) return;
+    const job = new AbortController();
+    probe = job;
+    scanMessage = 'Looking for the Areion gateway…';
+    drawState();
+    try {
+      const address = await findApGateway(apAddress.value.trim() || apDefault, {signal:job.signal, fallback:apDefault});
+      if (!job.signal.aborted) {
+        apAddress.value = address;
+        scanMessage = 'Areion gateway found. Choose Connect to open the flight-controller link.';
+      }
+    } catch (error) {
+      scanMessage = job.signal.aborted ? '' : 'Gateway not found. ' + error.message;
+    } finally {
+      probe = null;
+      drawState();
+    }
+  });
+  apAddress.addEventListener('input', () => { scanMessage = ''; drawState(); });
+  transport.addEventListener('change', () => { probe?.abort(); scanMessage = ''; drawState(); });
   const refresh = () => { if (!document.hidden) void catalog.scan(); };
   document.addEventListener('visibilitychange', refresh);
-  document.addEventListener('areion-offline-ready', showOfflineStatus);
-  showOfflineStatus();
   window.addEventListener('focus', refresh);
   const poll = setInterval(refresh, 3000);
   drawPorts(); drawState(); void catalog.scan();
   return {
+    setOffline,
+    get offline() { return offline; },
     get mode() { return transport.value; },
     get endpointLabel() {
       if (transport.value === 'ap') return apAddress.value.trim();
@@ -318,7 +356,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
       clearInterval(poll); catalog.destroy();
       window.removeEventListener('focus',refresh);
       document.removeEventListener('visibilitychange', refresh);
-      document.removeEventListener('areion-offline-ready', showOfflineStatus);
+      probe?.abort();
       document.removeEventListener('pointerdown', closeOutside);
     }
   };

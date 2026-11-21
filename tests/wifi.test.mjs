@@ -1,10 +1,13 @@
 import test from 'node:test';
+import {crc32} from 'node:zlib';
+import {UsbTelemetry} from '../web/usb.js';
 import assert from 'node:assert/strict';
-import {WifiPort, apUrl, DEFAULT_AP_URL} from '../web/wifi.js';
+import {WifiPort, apUrl, DEFAULT_AP_URL, findApGateway} from '../web/wifi.js';
 
-class Socket {
+class Socket extends EventTarget {
   static OPEN=1; static CONNECTING=0;
   constructor(url,protocol) {
+    super();
     this.url=url;this.protocol=protocol;this.readyState=0;this.bufferedAmount=0;this.frames=[];
     Socket.instance=this;
   }
@@ -15,7 +18,7 @@ class Socket {
     payload[0]=65;view.setUint32(1,id);view.setUint32(5,credit);payload.set(body,9);
     this.onmessage({data:payload.buffer});
   }
-  close(){this.readyState=3;}
+  close(){this.readyState=3;this.dispatchEvent(new Event('close'));}
 }
 
 test('default targets the on-kit websocket and normalizes local addresses',()=>{
@@ -51,4 +54,86 @@ test('unexpected poll replies and stale handshakes cannot admit a kit session',a
   const retry=new WifiPort();const connecting=retry.open();Socket.instance.up();
   retry.pending.at-=300;Socket.instance.reply(retry.pending.id,10);
   await assert.rejects(connecting,/too late/);
+});
+
+test('Find kit polls one Areion gateway, falls back to the factory address, and releases the socket without a Link frame',async t=>{
+  const sockets=[];
+  class Discovery extends Socket {
+    constructor(url, protocol) {
+      super(url, protocol);sockets.push(this);
+      queueMicrotask(()=>url===DEFAULT_AP_URL ? this.up() : this.onerror());
+    }
+    send(frame) {
+      super.send(frame);
+      queueMicrotask(()=>this.reply(new DataView(frame.buffer).getUint32(1),941));
+    }
+  }
+  const original=globalThis.WebSocket;globalThis.WebSocket=Discovery;
+  t.after(()=>{globalThis.WebSocket=original;});
+  assert.equal(await findApGateway('areion.local'),DEFAULT_AP_URL);
+  assert.deepEqual(sockets.map(s=>s.url),['ws://areion.local:8081/areion',DEFAULT_AP_URL]);
+  assert(sockets.every(s=>s.readyState===3));
+  assert.deepEqual(sockets.flatMap(s=>s.frames.map(f=>[f[0],f.length])),[[80,5]]);
+});
+test('cancelling AP discovery closes the pending socket and never tries another kit',async t=>{
+  const original=globalThis.WebSocket;globalThis.WebSocket=Socket;
+  t.after(()=>{globalThis.WebSocket=original;});
+  const abort=new AbortController();
+  const pending=findApGateway('areion.local',{signal:abort.signal});
+  const socket=Socket.instance;abort.abort();
+  await assert.rejects(pending,{name:'AbortError'});
+  assert.equal(socket.readyState,3);assert.equal(Socket.instance,socket);assert.deepEqual(socket.frames,[]);
+});
+
+test('explicit Connect sends native Link frames and receives telemetry through the gateway after discovery releases it',{timeout:6000},async t=>{
+  const requests=[], events=[], fc=1221, ticket=734, enc=new TextEncoder();
+  let source=0;
+  class KitGateway extends Socket {
+    constructor(url,protocol){super(url,protocol);this.replies=[];queueMicrotask(()=>this.up());}
+    response(request,type,data,fields={}) {
+      const body=JSON.stringify({...request,type,data,...fields});
+      const bytes=enc.encode(body);
+      this.replies.push(...enc.encode('$'+bytes.length+':'+body+'*'+crc32(bytes).toString(16).toUpperCase().padStart(8,'0')+'\n'));
+    }
+    send(frame){
+      super.send(frame);
+      const id=new DataView(frame.buffer,frame.byteOffset,frame.byteLength).getUint32(1);
+      if(frame[0]===80){
+        const values=this.replies.splice(0);
+        queueMicrotask(()=>{if(this.readyState===1)this.reply(id,ticket,values);});
+        return;
+      }
+      assert.equal(frame[0],70);assert.equal(id,ticket);
+      const packet=new TextDecoder().decode(frame.subarray(5));
+      const wire=JSON.parse(packet.slice(packet.indexOf(':')+1,-10));
+      requests.push(wire);
+      if(wire.type==='HELLO'){
+        this.response(wire,'ACK',['HELLO',fc]);
+        this.response(wire,'DATA',[1500,1400,1000,1500,1000,1000,1500,1500],{group:22,schema:1,session:fc,seq:1});
+      } else if(wire.type==='SET' && wire.group===110){
+        source=wire.data[0];this.response(wire,'ACK',['APPLIED_UNSAVED']);
+      } else if(wire.type==='READ' && wire.group===110){
+        this.response(wire,'DATA',[source]);
+      }
+    }
+  }
+  const original=globalThis.WebSocket;globalThis.WebSocket=KitGateway;t.after(()=>{globalThis.WebSocket=original;});
+  const addr=await findApGateway(DEFAULT_AP_URL);assert.deepEqual(requests,[]);
+  const handshake=Promise.withResolvers();
+  const link=new UsbTelemetry({
+    onStatus:status=>{
+      if(status.state==='connected')handshake.resolve();
+      if(status.state==='error')handshake.reject(Error(status.message));
+    },
+    onData:sample=>events.push(sample)
+  });
+  t.after(()=>link.disconnect());
+  await link.connect(new WifiPort(addr),{source:1,label:'AP Wi-Fi'});
+  await handshake.promise;
+  assert.equal(link.fcSession,fc);assert.equal(events[0].group,22);
+  assert.deepEqual(await link.setGroup(110,[1]),['APPLIED_UNSAVED']);
+  assert.deepEqual(await link.readGroup(110),[1]);
+  await link.disconnect();
+  assert.equal(requests[0].type,'HELLO');assert.equal(requests.at(-1).type,'RELEASE');
+  assert(!requests.some(request=>['ACTION','CONTROL'].includes(request.type)));
 });

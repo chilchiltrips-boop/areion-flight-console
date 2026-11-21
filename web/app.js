@@ -2,6 +2,8 @@ import {UsbTelemetry} from './usb.js';
 import {WifiPort, DEFAULT_AP_URL} from './wifi.js';
 import {Instruments} from './instruments.js';
 import {mountHeader} from './header.js';
+import {browserAccess} from './browser-access.js';
+import {monitorOffline} from './offline.js';
 import {mountFlightExtra} from './flight-extra.js';
 import {ConsoleShell} from './shell.js';
 import {saveFlightInput} from './config-commands.js';
@@ -131,8 +133,10 @@ async function connect(mode, endpoint) {
     await link.connect(endpoint);
   }
 }
+const access = browserAccess(window);
+document.documentElement.dataset.embedded = String(access.embedded);
 const header = mountHeader(document.querySelector('.mast'),{
-  connect,disconnect,stop:stopKit,notice,apSupported:true,apDefault:DEFAULT_AP_URL
+  connect,disconnect,stop:stopKit,notice,apSupported:true,apDefault:DEFAULT_AP_URL,access,retryOffline:() => retryOffline()
 });
 
 function render() {
@@ -152,6 +156,7 @@ function render() {
   if (!refresh && page !== 'flight') return;
   const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
     path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
+    browser:{embedded:access.embedded, usb:access.usbIssue, ap:access.apIssue, offline:header.offline},
     get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},
     group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
     checkTransmitter:()=>flightExtra.transmitter.open(ctx),
@@ -221,9 +226,7 @@ function tick(now){
 }
 shell.start();render();requestAnimationFrame(tick);
 
-if (location.protocol === 'https:' && window.isSecureContext && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./offline-worker.js').then(() => navigator.serviceWorker.ready).then(() => {
-    document.documentElement.dataset.offlineReady='true';
-    document.dispatchEvent(new Event('areion-offline-ready'));
-  }).catch(() => { /* USB and online use remain available when caching is disabled. */ });
-}
+const retryOffline = monitorOffline({
+  workers:access.workers, core:document.querySelector('meta[name="areion-core"]')?.content,
+  update:value => header.setOffline(value)
+});

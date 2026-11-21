@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -25,10 +26,14 @@ test('installed Pages release opens flight, the assembly viewer and scopes with 
       for (const request of requests) {
         assert.ok(request.url.startsWith(scope));
         const path = decodeURIComponent(request.url.slice(scope.length));
-        cacheEntries.set(request.url, await readFile(join(out, path)));
+        const bytes = await readFile(join(out, path));
+        if (/\.(html|svg)$/.test(path)) assert.match(bytes.toString(), /data-areion-build="areion-asset-[a-f0-9]+"/);
+        else assert.equal(request.integrity, 'sha256-' + createHash('sha256').update(bytes).digest('base64'));
+        cacheEntries.set(request.url, bytes);
       }
     },
-    async match(url) { return cacheEntries.get(url); }
+    async match(url) { return cacheEntries.has(url) ? new Response(cacheEntries.get(url)) : undefined; },
+    async keys() { return [...cacheEntries.keys()].map(url => new Request(url)); }
   };
   runInNewContext(worker, {
     URL, Request,
@@ -48,6 +53,23 @@ test('installed Pages release opens flight, the assembly viewer and scopes with 
     await work;
   }
   assert.equal(claimed, true);
+  const index = (await readFile(join(out,'index.html'))).toString();
+  const core = /name="areion-core" content="([0-9a-f]+)"/.exec(index)[1];
+  async function check(repair=false, expected=core) {
+    let work, status;
+    events.get('message')({data:{type:'AREION_OFFLINE_CHECK',core:expected,repair},
+      ports:[{postMessage(value){status=value;}}], waitUntil(promise){work=promise;}});
+    await work;
+    return status;
+  }
+  const first = await check();
+  assert.equal(first.core,core);
+  assert.equal(first.cached,first.total);
+  assert(first.total > 100);
+  cacheEntries.delete(scope+'assembly/f450_bottom_pdb.glb');
+  assert.equal((await check()).cached,first.total-1);
+  assert.equal((await check(true,'different-release')).cached,first.total-1);
+  assert.equal((await check(true)).cached,first.total);
 
   function fetchFromWorker(url, mode = 'cors') {
     let response;
@@ -57,19 +79,14 @@ test('installed Pages release opens flight, the assembly viewer and scopes with 
     });
     return response;
   }
-  for (const route of ['#flight', '#assembly', '#scopes/spectrum', 'index.html?from=bookmark#system/connection']) {
+  for (const route of ['#welcome','#flight','#record','#assembly','#configuration/wizard','#configuration/imu','#configuration/esc','#configuration/pid-simulator','#system/connections','#scopes/spectrum','#firmware','?embed=1#flight','index.html?from=bookmark#system/values']) {
     const entry = await fetchFromWorker(scope + route, 'navigate');
-    assert.equal(entry.toString(), (await readFile(join(out, 'index.html'))).toString());
+    assert.equal(await entry.text(), (await readFile(join(out, 'index.html'))).toString());
   }
   const benchDocument = await fetchFromWorker(scope + 'assembly/viewer.html', 'navigate');
-  assert.deepEqual(benchDocument, await readFile(join(out,'assembly/viewer.html')));
-  for (const path of [
-    'app.js','scopes.js','scope-data.js','analysis.css','assets/airframes/areion450.obj',
-    'assembly/page.js','assembly/viewer.js','assembly/viewer.css','assembly/wiring.js',
-    'assembly/three.module.min.js','assembly/js/canvas-renderer.js','assembly/f450_bottom_pdb.glb'
-  ]) {
-    const asset = await fetchFromWorker(scope + path);
-    assert.ok(asset?.length, path + ' must be available in the offline project scope');
+  assert.equal(await benchDocument.text(), await readFile(join(out,'assembly/viewer.html'),'utf8'));
+  for (const [url, bytes] of cacheEntries) {
+    assert.deepEqual(Buffer.from(await (await fetchFromWorker(url + '?embedded=1')).arrayBuffer()), bytes, url);
   }
   assert.equal(fetchFromWorker('http://192.168.4.1/telemetry'), undefined);
   assert.equal(fetchFromWorker('https://example.github.io/another-project/index.html','navigate'), undefined);
@@ -79,7 +96,7 @@ test('installed Pages release opens flight, the assembly viewer and scopes with 
 test('an assembly-only release can activate with open tabs, while shared console changes still wait', async () => {
   const template = await readFile(new URL('../scripts/offline-worker.template',import.meta.url),'utf8');
   const files = ['index.html','app.js','assembly/viewer.html'];
-  const worker = template.replace('__VERSION__','new').replace('__FILES__',JSON.stringify(files));
+  const worker = template.replace('__VERSION__','new').replace('__CORE__','core').replace('__FILES__',JSON.stringify(files)).replace('__INTEGRITY__','[]');
   const prefix = 'areion-console-/areion-flight-console/-';
   async function installsImmediately(oldFiles, failDownload = false) {
     const previous = {
