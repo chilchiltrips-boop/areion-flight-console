@@ -75,6 +75,7 @@ void ZebjusAreionLink::broadcast(const areion::Message& message) {
   for (auto& p : peers_) if (p.active) enqueue(p.queue, 0, frame, priority);
 }
 bool ZebjusAreionLink::sendGroup(uint16_t group) {
+  if (privateGroup(group)) return false;
   if (begun_) { engine_.expireOwner(millis()); syncOwnerRoutes(); }
   if (!begun_ || !engine_.ownerSession()) return false;
   areion::Message msg;
@@ -151,9 +152,14 @@ void ZebjusAreionLink::process() {
         ++rejected_;
         continue;
       }
+      const bool local = privateGroup(msg.group);
+      if (local && p.stream != privateUsb_) { ++rejected_; continue; }
       auto response = engine_.handle(msg, now, p.decoder.lastFrame());
       syncOwnerRoutes();
-      if (response.reply) broadcast(response.message);
+      if (response.reply && local) {
+        std::string frame;
+        if (areion::encodeFrame(response.message, frame)) enqueue(p.queue, p.offset, frame, true);
+      } else if (response.reply) broadcast(response.message);
     }
   }
   nextSerial_ = uint8_t((nextSerial_ + 1) % serial_.size());
@@ -166,6 +172,7 @@ void ZebjusAreionLink::process() {
     if (udp_.read(reinterpret_cast<uint8_t*>(&frame[0]), size_t(n)) != n) { ++rejected_; continue; }
     areion::Message msg;
     if (!areion::decodeFrame(frame, msg)) { ++rejected_; continue; }
+    if (privateGroup(msg.group)) { ++rejected_; continue; }
     // RELEASE retries remain eligible after the releasing peer was removed.
     // The engine authenticates their session and exact-byte tombstone; a retry
     // never allocates a route or releases a newer owner.

@@ -8,6 +8,8 @@ on:
       - 'tests/**'
       - 'scripts/**'
       - 'package.json'
+      - 'package-lock.json'
+      - 'firmware/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -26,10 +28,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci --ignore-scripts
+      - uses: actions/cache@v4
+        id: release
+        with:
+          path: build/firmware-release
+          key: areion-c6-core-3.3.7-${{ hashFiles('firmware/**', 'scripts/package-firmware.mjs', 'web/firmware-release.js') }}
+      - uses: arduino/setup-arduino-cli@v2
+        if: steps.release.outputs.cache-hit != 'true'
+      - name: Compile and package the Areion FC A1 release
+        if: steps.release.outputs.cache-hit != 'true'
+        run: |
+          url=https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index --additional-urls "$url"
+          arduino-cli core install esp32:esp32@3.3.7 --additional-urls "$url"
+          arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32C6 --libraries firmware/libraries --build-path "$RUNNER_TEMP/areion-build" firmware/AreionBrowserAP
+          node scripts/package-firmware.mjs "$RUNNER_TEMP/areion-build" build/firmware-release "$HOME/.arduino15/packages/esp32/hardware/esp32/3.3.7/tools/partitions/boot_app0.bin"
       - name: Test web console
         run: npm test
       - name: Build browser app and offline assets
-        run: npm run build
+        run: node scripts/build-pages.mjs dist --require-firmware
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist

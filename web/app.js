@@ -123,6 +123,7 @@ async function disconnect() {
   await link.disconnect();
 }
 async function connect(mode, endpoint) {
+  if (firmwareBusy) throw Error('Firmware is using the USB port.');
   if (openStates.has(state)) return;
   dropReplay();
   notice('');
@@ -131,6 +132,39 @@ async function connect(mode, endpoint) {
     await link.connect(new WifiPort(endpoint || DEFAULT_AP_URL),{source:1,label:'AP Wi-Fi'});
   } else {
     await link.connect(endpoint);
+  }
+}
+let firmwareBusy=false;
+async function withFirmwarePort(mode,prepare,program) {
+  if (firmwareBusy || header.connectionPending || link.closing || replay || stopPending || flightExtra.running)
+    throw Error('Finish the current kit operation and stop the sender first.');
+  if (!access.serial) throw Error(access.usbIssue);
+  const existing=link.current;
+  if (existing && (state!=='connected' || existing.source!==2) || !existing && mode==='update')
+    throw Error('Connect the existing kit over USB to update its firmware.');
+  firmwareBusy=true; link.firmwareMaintenance=true; header.firmwareBusy(true);
+  const protect=event=>{event.preventDefault();event.returnValue='';};
+  window.addEventListener('beforeunload',protect);
+  try {
+    const port=existing?.port || await header.chooseFirmwarePort();
+    if (!port) throw Error('Choose a USB port to flash.');
+    const release=await prepare();
+    if (page!=='firmware' || existing!==link.current) throw Error('Firmware operation cancelled before writing.');
+    if (existing) {
+      const setup=await link.readGroup(130);
+      const status=await link.readGroup(120);
+      if (page!=='firmware' || flightExtra.running || link.current!==existing || state!=='connected' ||
+          status[0]!==false || setup[8] || [1,2].includes(setup[3]))
+        throw Error('Disarm the kit and finish ESC or motor tests before flashing.');
+      release.kitId=setup[15];
+      await disconnect();
+      if (link.current || link.closing) throw Error('The telemetry port is still busy.');
+    }
+    return await program(port,release);
+  } finally {
+    window.removeEventListener('beforeunload',protect);
+    firmwareBusy=false; link.firmwareMaintenance=false; header.firmwareBusy(false);
+    lastShellUpdate=-Infinity; render();
   }
 }
 const access = browserAccess(window);
@@ -150,12 +184,12 @@ function render() {
   text($('frames'),count.toLocaleString()+' packets');
   $('export').disabled = !recording.length;
   text($('record-detail'),recording.length ? recording.length.toLocaleString()+' packets available to export.' : 'No telemetry recorded.');
-  $('import').disabled = openStates.has(state);
+  $('import').disabled = firmwareBusy || openStates.has(state);
   $('import').title = $('import').disabled ? 'Disconnect the kit to open a recording.' : 'Open a telemetry recording';
   const now = performance.now(), refresh = now - lastShellUpdate >= 150;
   if (!refresh && page !== 'flight') return;
   const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
-    path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
+    withFirmwarePort,firmwareBusy,path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
     browser:{embedded:access.embedded, usb:access.usbIssue, ap:access.apIssue, offline:header.offline},
     get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},
     group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
@@ -196,7 +230,7 @@ $('file').onchange=async()=>{
   try{
     if(file.size>MAX_CSV_BYTES)throw new Error('Choose a telemetry CSV smaller than 8 MiB.');
     const rows=parseCsv(await file.text());
-    if(['opening','handshake','connected','stale'].includes(state))throw new Error('Disconnect the kit to open a recording.');
+    if(firmwareBusy || ['opening','handshake','connected','stale'].includes(state))throw new Error('Disconnect the kit to open a recording.');
     replay={rows,model:new Instruments(),index:0,duration:rows.at(-1).at,position:0,playing:false,startedAt:0};
     $('replay').hidden=false;$('seek').max=String(replay.duration);$('play').disabled=replay.duration===0;
     shell.reset('replay');shell.log('Opened recording · '+file.name);pause();advance(0);notice('');view('flight');

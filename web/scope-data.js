@@ -109,7 +109,7 @@ export function spectrum(samples, now, firmware) {
   rows=rows.slice(-n);
   const first=rows[0].at, period=(rows.at(-1).at-first)/(n-1), fs=1000/period;
   if(rows.some((row,i)=>Math.abs(row.at-first-i*period)>.95*period) ||
-     (['3.1.0','3.2.0'].includes(firmware) && fs>2/.15*1.12))
+     (['3.1.0','3.2.0','3.3.0'].includes(firmware) && fs>2/.15*1.12))
     return waiting('Irregular telemetry timing');
   const grid=Array.from({length:6},()=>[]);
   let right=1;

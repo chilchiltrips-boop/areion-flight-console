@@ -128,3 +128,22 @@ test('a stale event stream permits DISARM and fresh status readback; motor clean
   assert.equal((await read)[0],false);link.tick(link.current);assert.equal(link.state,'connected');
   await link.disconnect();
 });
+
+test('AP credential reads and writes are USB-only and private status never enters recorded telemetry',async()=>{
+  const logged=[],{p,link}=await openAp(row=>logged.push(row));
+  try {
+    await assert.rejects(link.action(138,['RECOVER_AP','local-unit-test-key']),{code:'USB_REQUIRED'});
+    await assert.rejects(link.readGroup(139),{code:'USB_REQUIRED'});
+    assert.ok(!p.packets.some(packet=>packet.group===138 || packet.group===139));
+    link.current.source=2;
+    const operation=link.action(138,['SET_AP','Lab A','local-unit-test-key']);
+    await nextTurn();p.reply(p.packets.at(-1),'ACK',['AP_SAVED']);await operation;
+    const info=link.readGroup(139);await nextTurn();
+    const status=['Previous lab','Lab A',true,true];p.reply(p.packets.at(-1),'DATA',status);
+    assert.deepEqual(await info,status);p.event(139,status);await nextTurn();
+    assert.ok(!logged.some(r=>r.group===139));
+    link.firmwareMaintenance=true;
+    await assert.rejects(link.action(138,['RECOVER_AP','local-unit-test-key']),{code:'FLASH_BUSY'});
+    assert.throws(()=>link.sendControl([]),{code:'FLASH_BUSY'});
+  } finally {await link.disconnect();}
+});

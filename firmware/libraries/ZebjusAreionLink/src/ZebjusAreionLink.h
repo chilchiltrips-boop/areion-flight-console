@@ -17,6 +17,9 @@ class ZebjusAreionLink {
   ZebjusAreionLink& operator=(const ZebjusAreionLink&) = delete;
   bool begin(uint32_t session = 0);
   bool attachStream(Stream& stream);
+  void restrictGroupsToUsb(Stream& usb, uint16_t action, uint16_t status) {
+    privateUsb_ = &usb; privateAction_ = action; privateStatus_ = status;
+  }
   bool beginAP(const char* ssid, const char* password, uint16_t port = 8080);
   bool beginSTA(const char* ssid, const char* password, uint16_t port = 8080);
   bool addGroup(areion::Group& group) { return engine_.addGroup(group); }
@@ -57,6 +60,11 @@ class ZebjusAreionLink {
     uint16_t port = 0;
     std::deque<TxFrame> queue;
   };
+  Stream* privateUsb_ = nullptr;
+  uint16_t privateAction_ = 0, privateStatus_ = 0;
+  bool privateGroup(uint16_t id) const {
+    return privateUsb_ && (id == privateAction_ || id == privateStatus_);
+  }
   areion::Engine engine_;
   std::array<SerialPath, 2> serial_;
   std::array<UdpPath, 2> peers_;

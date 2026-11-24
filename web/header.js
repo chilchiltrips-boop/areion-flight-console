@@ -109,6 +109,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
   try { storage = localStorage; } catch { /* Private mode can restrict storage. */ }
   const catalog = new GrantedPorts(access.serial, storage, drawPorts);
   let state = 'offline', pending = false, stopping = false, attempt = 0, lastCtx = null, activeEndpoint = null;
+  let flashing=false;
   let pendingPort = null, titleUpdatedAt = -Infinity;
   let lastArmStatus = '', scanMessage = '', probe = null;
   let offline = {state:'preparing', detail:'Preparing offline files.'};
@@ -219,16 +220,16 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
       lastArmStatus = arm; write(armPill, arm);
       armPill.dataset.armed = String(arm.startsWith('ARMED'));
     }
-    write(primary, busy ? 'Connecting…' : live || state === 'stale' ? 'Reconnect' : 'Connect');
+    write(primary, flashing ? 'Flashing…' : busy ? 'Connecting…' : live || state === 'stale' ? 'Reconnect' : 'Connect');
     const issue = ap ? apIssue : access.usbIssue;
-    primary.disabled = busy || !!probe || !!issue;
-    cancel.disabled = !open && !pending && !probe;
+    primary.disabled = flashing || busy || !!probe || !!issue;
+    cancel.disabled = flashing || (!open && !pending && !probe);
     halt.disabled = stopping || !['connected','stale'].includes(state) || replay;
-    transport.disabled = open || pending;
-    endpoint.disabled = open || pending || !!access.usbIssue;
-    apAddress.disabled = open || pending || !!probe || !!apIssue;
+    transport.disabled = flashing || open || pending;
+    endpoint.disabled = flashing || open || pending || !!access.usbIssue;
+    apAddress.disabled = flashing || open || pending || !!probe || !!apIssue;
     scan.hidden = !ap;
-    scan.disabled = open || pending || !!probe || !!apIssue;
+    scan.disabled = flashing || open || pending || !!probe || !!apIssue;
     write(scan, probe ? 'Finding…' : 'Find kit');
     usbWrap.hidden = ap; apAddress.hidden = !ap;
     const linkHint = issue || (ap && !open ? scanMessage || 'Join the kit in your computer’s Wi-Fi settings, then find it or connect.' : '');
@@ -333,6 +334,9 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
   drawPorts(); drawState(); void catalog.scan();
   return {
     setOffline,
+    get connectionPending() { return pending || !!probe; },
+    firmwareBusy(value) { flashing=value; drawState(); },
+    chooseFirmwarePort() { transport.value='usb'; drawState(); return catalog.choose(); },
     get offline() { return offline; },
     get mode() { return transport.value; },
     get endpointLabel() {

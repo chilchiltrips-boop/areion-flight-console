@@ -34,6 +34,12 @@ If the platform sends a restrictive `Permissions-Policy` header, include `https:
 3. Choose **Connect** and allow local network access. The header’s TX/RX meters show actual traffic after the FC handshake. USB uses the same pages via desktop Web Serial. Choose a port when prompted. Neither discovery nor changing networks starts a sender.
 4. To reload the **entire platform page** without internet, the host site must also cache its own page. Chrome partitions embedded storage by the top-level site, so warm each platform separately. For a host you control, [copy the offline embed example](examples/offline-embed/) into its own HTTPS directory, or cache the embedding page in your existing site worker. The example shows separate host and console readiness. If you use the standalone console as a fallback, open that tab online once as well.
 
+## Firmware and Wi-Fi recovery
+
+Open **Firmware** in desktop Chrome or Edge. Remove propellers and disconnect the LiPo. For an existing kit, connect over USB and choose **Update existing kit**. For a new board, choose **Install / recover board** and select its USB port. Reconnect after flashing to check the running version.
+
+With firmware 3.3.0 or later, **Firmware → Kit Wi-Fi** lets you set the SSID and password over USB. **Recover access → Restore Wi-Fi** restores the release's default SSID `aerion drone` and generates a new password. Keep the displayed password and restart the board. Flight settings are stored separately. Set the credentials once when upgrading a kit whose password existed only in its old sketch.
+
 ## Calibrate the IMU
 
 Open [Configuration → IMU](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/imu) or **Setup wizard → Sensors**. With the propellers removed and the kit connected, confirm the arming lock and choose **Start calibration** once. Rest the kit in each of six positions in any order. The guide shows the measured orientation, how long it has been steady, and which positions are still needed. Leave it still until the position is marked captured. Movement restarts the current hold.
@@ -50,10 +56,10 @@ After all six pass, choose **Save calibration to kit**. The console reads back b
 | Configuration | Guided setup and restart verification, receiver calibration, IMU capture, ESCs and motor outputs, rate and attitude PID editors with controller readback |
 | System | Live fields with age and state, connection details, event log, copyable diagnostics and CSV export |
 | Scopes | Motion, control, spectrum and receiver plots, freeze, time window and export |
-| Firmware | Controller-reported firmware identity and capabilities |
+| Firmware | USB update or installation, boot version verification, and USB Wi-Fi name, password and recovery |
 
-Remove the propellers before setup and motor calibration. Hardware-in-the-loop and browser firmware flashing are unavailable in this release. The IMU shows relative yaw. GPS position requires a reported fix.
+Remove the propellers before setup and motor calibration. Hardware-in-the-loop is unavailable in this release. The IMU shows relative yaw. GPS position requires a reported fix.
 
 ## Development
 
-Run `npm test` and `npm run build`. The build creates the static app and its offline cache in `dist/`. GitHub Actions tests and publishes this directory to GitHub Pages. The separate firmware workflow compiles the AP-enabled sketch for the target board. The [desktop source](desktop/README.md) is included for users of the original Python application.
+Run `npm ci`, `npm test` and `npm run build`. The build creates the static app and its offline cache in `dist/`. GitHub Actions tests and publishes this directory to GitHub Pages. The Pages workflow compiles firmware with the pinned board core and packages the USB installer, release images and checksums for offline use. The [desktop source](desktop/README.md) is included for users of the original Python application.

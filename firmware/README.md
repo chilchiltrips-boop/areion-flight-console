@@ -2,13 +2,14 @@
 
 The stock 3.2.0 sketch serves Areion Link v2 over serial and UDP. This optional sketch adds a WebSocket endpoint to the board for the published [Areion Flight Console](https://chilchiltrips-boop.github.io/areion-flight-console/). Existing boards can use the website over USB immediately.
 
-## Install for AP Wi-Fi
+## Install and connect
 
-1. Extract the repository. Copy the two folders inside `firmware/libraries/` to your Arduino sketchbook's `libraries/` folder. Both contain the Areion project’s original C++ libraries. Use one installed copy of each.
-2. Open `firmware/AreionBrowserAP/AreionBrowserAP.ino` in Arduino IDE and select the XIAO ESP32C6 board with your usual USB settings. The CI build uses Espressif’s Arduino core 3.3.7.
-3. Set a private Wi-Fi password of 8–63 characters in `AreionWifiConfig.h`. The default empty value leaves the AP off. Keep your configured password in your local sketch.
-4. With propellers removed, upload over USB. The firmware reports version 3.2.0 to the existing clients and uses the existing settings keys. Upload using the board’s normal flash settings to retain saved data.
-5. Open the GitHub Pages console while online. Join the kit’s Wi-Fi, select **AP Wi-Fi** in the header, then connect to `ws://192.168.4.1:8081/areion` and allow the browser's local network permission when prompted. Recent desktop Chrome and Edge with Local Network Access support can connect from HTTPS to this private IP. Open the published site in the same browser profile used to grant permission.
+1. With propellers removed and the LiPo disconnected, open the web console's **Firmware** page in desktop Chrome or Edge. Connect an existing kit over USB for **Update existing kit**, or choose **Install / recover board** for a new board. Reconnect after flashing to verify version 3.3.0.
+2. Under **Kit Wi-Fi**, set the name and a password of 8–63 printable characters and click **Save Wi-Fi**. Restart on USB. A fresh stock installation enables its access point after this first configuration.
+3. For a forgotten password, connect by USB and choose **Recover access → Restore Wi-Fi**. Save the generated password and restart. The default SSID is `aerion drone`. Previous flight and calibration settings are kept.
+4. Wait for **Offline ready** in the header, join the kit’s network and choose **AP Wi-Fi → Find kit → Connect**. The default gateway is `ws://192.168.4.1:8081/areion`.
+
+For an Arduino IDE build, use the two bundled libraries, the XIAO ESP32C6 board and Espressif Arduino core 3.3.7. Optional factory credentials in `AreionWifiConfig.h` apply until credentials are provisioned over USB. The release uses a 4 MB default OTA layout with two app slots. USB updates verify the spare slot before selecting it for the next boot. The settings partition is outside all installer writes.
 
 The connection method in the header selects how the computer talks to the board. The flight input setting selects who controls the channels. Choose AP flight input on the kit to send channels over AP. Existing Python clients can still use UDP port 8080.
 

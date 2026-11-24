@@ -16,8 +16,7 @@ float LoopDt = 0.004f;
 bool ImuReadOK = false;
 
 // === Receiver + USB/AP communication ===
-const char* ssid = AREION_AP_SSID;
-const char* password = AREION_AP_PASSWORD;
+
 const int port = 8080;
 const int expectedArrayLength = 8; // CONTROL schema1: CH1..CH8
 const uint32_t inputTimeoutMs = 250; // IMU freshness remains fixed.
@@ -207,7 +206,10 @@ static uint32_t AreionEscImuAt=0, AreionEscImuSampleAt=0;
 static void areion_start_ap() {
   if(AreionAPAttempted) return;
   AreionAPAttempted=true;
-  AreionAPReady=AreionLinkReady && receiver.beginAP(ssid,password,port);
+  AreionWifiRecord wifi{};
+  areion_load_wifi(wifi);
+  AreionAPReady=AreionLinkReady && AreionWifiConfigured && receiver.beginAP(wifi.ssid,wifi.password,port);
+  if (AreionAPReady) AreionActiveSSID=wifi.ssid;
   if(AreionAPReady) {
     AreionAPAddress=receiver.apIP().toString().c_str();
     areion_web_gateway_begin(receiver.apIP(), port);
@@ -277,6 +279,7 @@ void setup() {
   Serial.begin(115200);
   // === Receiver + USB/AP setup ===
   bool linkReady=receiver.begin();
+  receiver.restrictGroupsToUsb(Serial, 138, 139);
   if (linkReady) linkReady=receiver.attachStream(Serial);
   receiver.setControlFromSerial(false); // Boot input is PPM; source selection enables one route.
   receiver.setControlFromUDP(false);

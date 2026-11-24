@@ -69,10 +69,10 @@ def open_link(options, cancel):
             try:
                 values[group] = validate_values(group, link.read_group(group, schema=DRONE_GROUPS[group]['schema']))
             except Exception as error:
-                raise RuntimeError(f'Group {group}: {error}. Upload the matching v3.2.0 main and library.') from error
+                raise RuntimeError(f'Group {group}: {error}. Upload the matching Areion firmware and library.') from error
             if group == 125 and values[125][0] not in SUPPORTED_FIRMWARE:
-                raise RuntimeError('Upload the matching v3.2.0 main and library for the firmware setup ARM lock. '
-                                   'Supported firmware: 3.1.0 or 3.2.0. '
+                raise RuntimeError('Upload the matching Areion firmware and library for the firmware setup ARM lock. '
+                                   'Supported firmware: 3.1.0, 3.2.0 or 3.3.0. '
                                    f'Connected firmware reports {values[125][0]}.')
         return link, values, wifi, warnings
     except BaseException:

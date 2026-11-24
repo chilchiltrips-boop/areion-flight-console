@@ -1,9 +1,9 @@
 #pragma once
 // Sketch-specific group bindings and input state. AP settings/object live in .ino.
-// Requires the supplied ZebjusAreionLink v3.2.0 or a compatible v3 API.
+// Requires the supplied ZebjusAreionLink v3.3.0 or a compatible v3 API.
 // Flight math and hardware remain in the sketch.
-#if !defined(ZEBJUS_AREION_LINK_API_LEVEL) || ZEBJUS_AREION_LINK_API_LEVEL < 30100
-#error "Install the supplied ZebjusAreionLink 3.2.0 library; remove older duplicate installations."
+#if !defined(ZEBJUS_AREION_LINK_API_LEVEL) || ZEBJUS_AREION_LINK_API_LEVEL < 30300
+#error "Install the supplied ZebjusAreionLink 3.3.0 library; remove older duplicate installations."
 #endif
 #if !defined(ZEBJUS_AREION_LINK_VERSION_MAJOR) || ZEBJUS_AREION_LINK_VERSION_MAJOR != 3
 #error "This Areion FC A1 sketch requires the matching ZebjusAreionLink v3 library."
@@ -21,7 +21,7 @@ static areion::Group AreionRatePID(2,1,true,true), AreionAnglePID(3,1,true,true)
 static areion::Group AreionAccelOffsets(6,2,true,true);
 static areion::Group AreionArmingSettings(4,2,true,true), AreionFlightSettings(7,3,true,true);
 static areion::Group AreionTimeoutSettings(112,1,true,true), AreionOutputs(23,2), AreionDevice(125,1);
-static std::string AreionFirmwareVersion="3.2.0";
+static std::string AreionFirmwareVersion="3.3.0";
 static int AreionTargetHz=250, AreionControlHz=50, AreionPpmPin=D10;
 static int AreionMotorPins[4]={MOTOR_PINS[0],MOTOR_PINS[1],MOTOR_PINS[2],MOTOR_PINS[3]};
 static int AreionPwmHz=pwmFreq, AreionPwmBits=pwmResolution;
@@ -116,6 +116,7 @@ static void areion_offsets_applied() {
   areion_reset_input();
 }
 #include "AreionSetupLifecycle.h"
+#include "AreionWifiSettings.h"
 
 static areion::ActionResult areion_arm_action(const std::vector<areion::Value>& data,uint32_t now) {
   if(data.size()!=1 || data[0].type!=areion::ValueType::String) return {false,"ACTION_DATA"};
@@ -236,7 +237,7 @@ static bool areion_link_begin(bool transportReady) {
     && receiver.addGroup(AreionArmingSettings) && receiver.addGroup(AreionFlightSettings)
     && receiver.addGroup(AreionTimeoutSettings) && receiver.addGroup(AreionOutputs)
     && receiver.addGroup(AreionDevice) && receiver.engine().addAction(123,1,areion_arm_action)
-    && areion_setup_bind();
+    && areion_wifi_bind() && areion_setup_bind();
   receiver.engine().onWriteAllowed([] { return !Armed && !AreionPidPending && !AreionMotorTestActive && AreionEscState!=1 && AreionEscState!=2 && !AreionEscBootMode && AreionSetupStoreHealthy; });
   // ESC timing is autonomous and all flight ARM paths remain locked. Allow
   // reconnect/read/STOP even when calibration or storage health forbids writes.

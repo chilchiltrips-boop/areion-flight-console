@@ -306,7 +306,7 @@ def imu_spectra(data, now, seconds):
     # These firmware versions publish two IMU groups per six 25 ms slots.
     # A regular, but much faster, USB queue drain is not a higher-rate sensor.
     info = data.values(125)
-    if info and info[0] in ('3.1.0', '3.2.0') and fs > (2 / .15) * 1.12:
+    if info and info[0] in ('3.1.0', '3.2.0', '3.3.0') and fs > (2 / .15) * 1.12:
         return _unavailable('Bursty IMU delivery · waiting for normal telemetry timing', count)
     resolution = fs / count
     grid = []

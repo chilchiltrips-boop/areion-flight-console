@@ -143,14 +143,14 @@ export class UsbTelemetry {
         run.lastPong=at;
         this.traffic('rx',msg.byteLength,at);
         this.finish(run,null,msg.data);
-        if(read && !p.saved) {
+        if(read && !p.saved && msg.group!==139) {
           if ([120,122,21,23,130].includes(msg.group)) run.lastRx=at;
           this.data(run,msg,at);
         }
       }
       return;
     }
-    if(!run.fc || msg.session!==run.fc || msg.type!=='DATA' || !validGroup(msg.group,msg.schema,msg.data))return;
+    if(msg.group===139 || !run.fc || msg.session!==run.fc || msg.type!=='DATA' || !validGroup(msg.group,msg.schema,msg.data))return;
     const prior=run.events.get(msg.group);
     if(prior!==undefined && !newer(msg.seq,prior))return;
     run.events.set(msg.group,msg.seq);
@@ -203,7 +203,11 @@ export class UsbTelemetry {
 
   rpc(type,group,values,{signal}={}) {
     const run=this.current, priority=type==='ACTION' ? stopPriority(group,values?.[0]) : 0;
+    if (this.firmwareMaintenance && type!=='READ' && !priority)
+      return Promise.reject(fail('USB firmware transfer in progress.','FLASH_BUSY'));
     const canInspect=type==='READ' && this.state==='stale';
+    if ((group===138 || group===139) && run?.source!==2)
+      return Promise.reject(fail('Connect the kit directly over USB.','USB_REQUIRED'));
     if(!run?.fc || run.closing || !priority && !canInspect && this.state!=='connected')
       return Promise.reject(fail('Connect to a live controller first.','OFFLINE'));
     if(signal?.aborted)return Promise.reject(fail('Request cancelled.','CANCELLED'));
@@ -235,6 +239,7 @@ export class UsbTelemetry {
   action(group,values,options) {return this.rpc('ACTION',group,values,options);}
 
   sendControl(values) {
+    if (this.firmwareMaintenance) throw fail('USB firmware transfer in progress.','FLASH_BUSY');
     const run=this.current;
     if(!run?.fc || this.state!=='connected')throw fail('No confirmed control connection.');
     const frame=encodeCommand('CONTROL',9,run.session,nextSeq(run.controlSeq),values);

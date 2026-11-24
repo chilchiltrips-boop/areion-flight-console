@@ -21,7 +21,7 @@ class UnsupportedSetupFeature(RuntimeError):
 class MotorTestAdapter:
     """Legacy import compatibility; motor actions require an explicit Link."""
     available = False
-    reason = 'Use the verified firmware 3.1.0 / 3.2.0 setup action API for motor testing.'
+    reason = 'Use the firmware setup action API for motor testing.'
     def start(self, *args, **kwargs):
         raise UnsupportedSetupFeature(self.reason)
     def update(self, *args, **kwargs):
