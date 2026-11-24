@@ -59,7 +59,14 @@ public final class AreionTouchInstrumentation extends Instrumentation {
             runOnMainSync(() -> web = findWeb(started.getWindow().getDecorView()));
             require(web != null, "A1 cockpit has no WebView");
             waitFor("document.querySelector('.a1-touch-deck')?.getBoundingClientRect().width>0", 60000);
-            waitFor("document.hasFocus() && location.origin==='https://chilchiltrips-boop.github.io'");
+            waitFor("location.origin==='https://chilchiltrips-boop.github.io'");
+            // A freshly launched Android WebView can render before it takes touch focus.
+            js("window.__titleTouched=false;document.querySelector('.a1-brand').addEventListener('pointerdown',"
+                    + "e=>{window.__titleTouched=e.isTrusted && e.pointerType==='touch'},{once:true});true");
+            float[] title = point(".a1-brand", .5, .5);
+            touch(MotionEvent.ACTION_DOWN, new int[]{0}, title);
+            touch(MotionEvent.ACTION_UP, new int[]{0}, title);
+            waitFor("window.__titleTouched && document.hasFocus()");
             testTouch();
             byte[][] messages = encodeWithPackagedConsole();
             String telemetry = A1GatewayFixture.exchange(context, messages[0], messages[1]);
@@ -72,7 +79,8 @@ public final class AreionTouchInstrumentation extends Instrumentation {
         } catch (Throwable failure) {
             String diagnostic;
             try {
-                diagnostic = js("JSON.stringify({url:location.href,title:document.title,"
+                diagnostic = js("JSON.stringify({url:location.href,title:document.title,focus:document.hasFocus(),"
+                        + "titleTouched:window.__titleTouched,trustedTouches:window.__trustedTouches,"
                         + "ready:document.readyState,body:document.body.innerText.slice(0,650)})");
             } catch (Throwable unavailable) { diagnostic = "WebView unavailable"; }
             Log.e("AreionAcceptance", "Android check failed", failure);

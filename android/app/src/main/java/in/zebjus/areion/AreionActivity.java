@@ -47,6 +47,8 @@ public class AreionActivity extends Activity {
         PackagedConsole site = new PackagedConsole(getAssets());
         browser = new WebView(this);
         setContentView(browser);
+        browser.setFocusableInTouchMode(true);
+        browser.requestFocus();
         immersive();
         WebSettings settings = browser.getSettings();
         settings.setJavaScriptEnabled(true);
