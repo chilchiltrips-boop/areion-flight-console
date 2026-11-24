@@ -24,9 +24,9 @@ function bounded(promise, ms, message) {
 export class UsbTelemetry {
   static supported() { return Boolean(globalThis.isSecureContext && globalThis.navigator?.serial?.requestPort); }
 
-  constructor({onStatus=()=>{},onData=()=>{},onTraffic=()=>{},onPort=()=>{}}={}) {
+  constructor({onStatus=()=>{},onData=()=>{},onTraffic=()=>{},onPort=()=>{},route=()=>null}={}) {
     this.onStatus=onStatus; this.onData=onData; this.onTraffic=onTraffic; this.onPort=onPort;
-    this.current=null; this.closing=null; this.state='offline';
+    this.current=null; this.closing=null; this.state='offline'; this.route=route; this.lastConnection=null;
     this.stats={sent:0,received:0,lastRxAt:null};
   }
 
@@ -75,15 +75,25 @@ export class UsbTelemetry {
   }
 
   async read(run) {
+    let reason=run.label+' disconnected. Reconnect the kit.';
     try {
       while (!run.closing) {
-        const {value,done}=await run.reader.read();
+        let value,done;
+        try { ({value,done}=await run.reader.read()); }
+        catch (error) {
+          if (error?.message) reason=run.label+' link lost. '+error.message;
+          break;
+        }
         if (done || this.current!==run || run.closing) break;
-        for (const msg of run.decoder.push(value)) this.receive(run,msg);
+        const bytes=run.port.timestamped ? value.bytes : value;
+        const at=run.port.timestamped ? value.at : now();
+        for (const msg of run.decoder.push(bytes)) this.receive(run,msg,at);
       }
-    } catch { /* Device removal and stream cancellation both end the reader. */ }
+    } catch (error) {
+      reason='Console could not process telemetry on '+(this.route() || 'this page')+'. '+error.message;
+    }
     finally {
-      if (this.current===run && !run.closing) void this.stop(run,'error',run.label+' disconnected. Reconnect the kit.');
+      if (this.current===run && !run.closing) void this.stop(run,'error',reason);
     }
   }
 
@@ -108,9 +118,9 @@ export class UsbTelemetry {
     else p.resolve?.(values);
   }
 
-  receive(run,msg) {
+  receive(run,msg,at=now()) {
     if (this.current!==run || run.closing) return;
-    const at=now(), p=run.pending;
+    const p=run.pending;
     if (p && msg.session===run.session && msg.seq===p.seq && msg.group===p.group && msg.schema===p.schema) {
       if (msg.type==='ERROR' && msg.data.length===1 && typeof msg.data[0]==='string') {
         this.traffic('rx',msg.byteLength,at);
@@ -159,11 +169,15 @@ export class UsbTelemetry {
     this.data(run,msg,at);
   }
 
+  writeFrame(run,frame) {
+    return run.writer.write(run.port.timestamped ? {bytes:frame,issuedAt:performance.timeOrigin+now()} : frame);
+  }
+
   write(run,frame) {
     run.writing=true;
-    run.writeDone=bounded(run.writer.write(frame),1100,run.label+' write timed out.')
+    run.writeDone=bounded(this.writeFrame(run,frame),1100,run.label+' write timed out.')
       .then(()=>{if(this.current===run)this.traffic('tx',frame.length,now());})
-      .catch(()=>{if(this.current===run&&!run.closing)void this.stop(run,'error',run.label+' write failed. Reconnect the kit.');})
+      .catch(error=>{if(this.current===run&&!run.closing)void this.stop(run,'error',run.label+' write failed. '+error.message);})
       .finally(()=>{
         run.writing=false;
         if(this.current===run && run.pending?.sent===null) this.tick(run);
@@ -297,6 +311,10 @@ export class UsbTelemetry {
 
   async stop(run,state,message) {
     if(this.current!==run || run.closing)return this.closing;
+    if (run.fc) this.lastConnection={
+      source:run.source===1?'ap':'usb',page:this.route(),ended_at:new Date().toISOString(),
+      host_session:run.session,fc_session:run.fc,tx:this.stats.sent,rx:this.stats.received,reason:message
+    };
     run.closing=true; this.current=null;
     clearInterval(run.timer);
     this.finish(run,fail('Connection closed.','OFFLINE'));
@@ -307,7 +325,7 @@ export class UsbTelemetry {
         if(run.fc && run.writer && state==='offline') {
           if(run.writing)await run.writeDone;
           const frame=encodeRequest('RELEASE',0,1,run.session,nextSeq(run.seq));
-          await bounded(run.writer.write(frame),300,'Release timeout').catch(()=>{});
+          await bounded(this.writeFrame(run,frame),300,'Release timeout').catch(()=>{});
         }
         if(run.reader)await run.reader.cancel().catch(()=>{});
         if(run.reading)await run.reading;

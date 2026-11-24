@@ -97,10 +97,26 @@ test('checks actual offset-only residual and rejects unsupported gain or inconsi
       at=hold(check,at,sample);
     }
     assert.equal(check.faces.size,6);
-    assert.equal(check.phase,'error');assert.equal(check.ready,false);
+    assert.equal(check.phase,mismatch==='offset-range'?'error':'review');assert.equal(check.ready,false);
     assert.equal(check.offsets,null);
     if(mismatch==='offset-range')assert.match(check.note,/range/);
-    else assert.ok(check.quality.maxError>.12);
+    else {
+      assert.ok(check.quality.maxError>.12);
+      const flagged=mismatch==='gain'?[0,5]:[2];
+      assert.deepEqual(check.quality.failed,flagged);
+      assert.match(check.note,/0\.12 g/);
+      const goodFace=check.faces.get(3);
+      assert.ok(check.retryFaces(at));
+      assert.equal(check.faces.get(3),goodFace);
+      assert.equal(check.faces.size,6-flagged.length);
+      if(mismatch==='cross-axis'){
+        const tilted=group21(2);tilted[5]=.18;
+        at=hold(check,at,tilted);assert.equal(check.faces.size,5);assert.match(check.note,/Off-axis/);
+      }
+      for(const f of flagged)at=hold(check,at,group21(f,zero,base,zero,mismatch==='gain'?[1,1,1.16]:[1,1,1]));
+      if(mismatch==='gain'){assert.equal(check.needsRetry,true);assert.equal(check.offsets,null);assert.match(check.note,/Z measures/);}
+      else {assert.equal(check.ready,true);assert.equal(check.faces.get(3),goodFace);}
+    }
     assert.ok(check.start(at,zero));assert.equal(check.quality,null);
   }
 });

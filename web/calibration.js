@@ -10,7 +10,8 @@ export const poses = [
 ];
 
 const HOLD_MS = 3000, SAMPLES = 20, MAX_GAP_MS = 500;
-const GYRO_RESIDUAL_LIMIT = 1, FIT_ERROR_LIMIT = .12;
+const GYRO_RESIDUAL_LIMIT = 1;
+export const FIT_ERROR_LIMIT = .12;
 const AXES = [0, 1, 2];
 const maximumAbs = vector => Math.max(...vector.map(Math.abs));
 
@@ -86,6 +87,18 @@ export class SensorCheck {
   }
   get progress() { return this.window?.progress ?? 0; }
   get ready() { return this.phase === 'complete'; }
+  get needsRetry() { return this.phase === 'review'; }
+
+  retryFaces(now) {
+    if (!this.needsRetry || !Number.isFinite(now)) return false;
+    for (const face of this.quality.failed) {
+      this.faces.delete(face);
+      this.gyroMeans.delete(face);
+    }
+    this.active = {started:now, last:null};
+    this.detecting('Hold each highlighted face square and still.');
+    return true;
+  }
 
   start(now, offsets) {
     if (this.active || !Number.isFinite(now) || !Array.isArray(offsets) || offsets.length !== 3 ||
@@ -141,6 +154,16 @@ export class SensorCheck {
       this.detecting('Already captured. Move to an unfinished face.', face);
       return;
     }
+    // The first fit provides a bias estimate for alignment guidance only.
+    // On a retry, catch a tilted face before committing another three-second hold.
+    if (this.quality?.failed.includes(face)) {
+      const axis = poses[face][1];
+      const cross = Math.hypot(...raw.map((v,i) => i === axis ? 0 : v + this.quality.biasCorrection[i]));
+      if (cross > FIT_ERROR_LIMIT) {
+        this.detecting('Square this face to gravity. Off-axis reading '+cross.toFixed(3)+' g.', face);
+        return;
+      }
+    }
     if (this.window?.face !== face) this.window = new StationaryWindow(face, at);
     this.detected = face;
     this.phase = 'holding';
@@ -172,17 +195,31 @@ export class SensorCheck {
     const residuals = poses.map(([, axis, sign], face) =>
       this.faces.get(face).map((raw, i) => raw + offsets[i] - (i === axis ? sign : 0)));
     const axisErrors = AXES.map(i => Math.max(...residuals.map(v => Math.abs(v[i]))));
-    const maxError = Math.max(...residuals.map(v => Math.hypot(...v)));
+    const faceErrors = residuals.map(v => Math.hypot(...v));
+    const maxError = Math.max(...faceErrors);
+    const failed = faceErrors.flatMap((error, face) => error > FIT_ERROR_LIMIT ? [face] : []);
     const gyros = [...this.gyroMeans.values()];
     const gyroPeak = Math.max(...gyros.map(maximumAbs));
     this.gyro = Object.freeze(AXES.map(i => gyros.reduce((sum, g) => sum + g[i], 0) / gyros.length));
-    this.quality = Object.freeze({axisErrors: Object.freeze(axisErrors), maxError, gyroPeak});
+    this.quality = Object.freeze({axisErrors:Object.freeze(axisErrors), maxError, gyroPeak,
+      faceErrors:Object.freeze(faceErrors), failed:Object.freeze(failed), biasCorrection:Object.freeze(offsets)});
     if (maximumAbs(offsets) > .5) {
       this.end('error', 'Offset exceeds the kit range (±0.5 g). Check the sensor and repeat.');
       return;
     }
-    if (maxError > FIT_ERROR_LIMIT) {
-      this.end('error', 'Six-face readings exceed the 0.12 g fit limit. Check alignment and repeat.');
+    if (failed.length) {
+      const worst = faceErrors.indexOf(maxError);
+      let note = poses[worst][0]+' measured '+maxError.toFixed(3)+' g error. Limit '+FIT_ERROR_LIMIT.toFixed(2)+' g.';
+      for (const axis of AXES) {
+        const plus = poses.findIndex(([,i,s]) => i === axis && s === 1);
+        const minus = poses.findIndex(([,i,s]) => i === axis && s === -1);
+        const gain = (this.faces.get(plus)[axis] - this.faces.get(minus)[axis]) / 2;
+        if (Math.abs(gain-1) > FIT_ERROR_LIMIT) {
+          note += ' '+['X','Y','Z'][axis]+' measures ±'+gain.toFixed(3)+' g across its two faces. Check the sensor scale if this repeats.';
+          break;
+        }
+      }
+      this.end('review', note);
       return;
     }
     this.offsets = Object.freeze(offsets);

@@ -161,6 +161,8 @@ export class ConfigPanel {
       case 'reset':return check('reset');
       case 'start-sensor':return this.local.sensorVisible() && !this.local.calibration.sensor.active &&
         !this.local.calibration.gate(this.ctx,this.local.sensorControls());
+      case 'retry-sensor':return this.local.sensorVisible() && this.local.calibration.sensor.needsRetry &&
+        !this.local.calibration.gate(this.ctx,this.local.sensorControls());
       case 'imu':return this.local.sensorVisible() && this.local.calibration.ready(this.ctx,this.local.sensorControls());
       case 'receiver':return check('receiver')&&!a.rxRun&&cfg?.[1]===0&&(a.endpoints||s[6])&&this.fresh(131)?.[9];
       case 'schedule':case 'skip':return s[5]&&(cfg?.[1]!==0||s[6])&&![1,2].includes(s[3])&&check(key==='schedule'?'compatible':'skip');
@@ -168,7 +170,7 @@ export class ConfigPanel {
       case 'motor-start':return !s[8]&&this.motorOk();
       case 'record-min':return this.motor?.ready;
       case 'motor-confirm':return check('direction')&&!s[8]&&[0,1,2,3].every(i=>!(this.mask&(1<<i))||this.minima.has(i));
-      case 'final':return check('final')&&s[5]&&(cfg?.[1]!==0||s[6])&&[4,5].includes(s[3])&&s[4]===15&&!s[8];
+      case 'final':return !this.local.calibration.pending&&check('final')&&s[5]&&(cfg?.[1]!==0||s[6])&&[4,5].includes(s[3])&&s[4]===15&&!s[8];
       default:return true;
     }
   }
@@ -242,6 +244,14 @@ export class ConfigPanel {
         if(reason||!this.local.sensorVisible())throw Error(reason||'Reopen the sensor calibration page.');
         this.local.calibration.start(this.ctx,base,setup[15],performance.now());
         return 'Automatic capture started.';
+      }
+      case 'retry-sensor':{
+        await op.sensorState();
+        await op.read(6);
+        op.check();
+        if (!this.local.sensorVisible()) throw Error('Reopen the sensor calibration page.');
+        this.local.calibration.retry(this.ctx,this.local.sensorControls());
+        return 'Capturing highlighted faces.';
       }
       case 'imu':{
         await this.local.calibration.save(op,this.ctx,this.local.sensorControls());

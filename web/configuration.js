@@ -257,7 +257,7 @@ export function mount(root) {
     for(const ph of root.querySelectorAll('[data-phase]'))ph.classList.toggle('on',fc?.[3]!==5 && [1,2,3,4].slice(0,Math.min(4,fc?.[3]??0)).includes(Number(ph.dataset.phase)+1));
     if(page==='pid')drawCurve(ctx);
     const chart=root.querySelector('[data-response]');if(chart)drawResponse(chart,ctx,responseAxis,!!responseAngle);
-    const sensorPending=step===3 && (sensor.active || sensor.ready && !calibration.saved || !fc?.[5]);
+    const sensorPending=step===3 && (calibration.pending || !fc?.[5]);
     const buttons={back:!step,next:!confirmed||(hardware.live&&!hardware.lock&&step<8)||(hardware.live&&sensorPending),
       'rx-capture':!rxRun&&(!confirmed||!hardware.lock||!gate(ctx)||!rawFresh||get(122,500)?.[0]!==0||!get(122,500)?.[2])};
     for(const [key,disabled] of Object.entries(buttons)){const b=root.querySelector('[data-act="'+key+'"]');if(b)b.disabled=!!disabled;}
@@ -270,7 +270,7 @@ export function mount(root) {
       const lockState=root.querySelector('[data-sensor-lock-state]');
       if(lockState)lockState.hidden=!hardware.lock;
       const finish=root.querySelector('[data-sensor-finish]');
-      if(finish)finish.hidden=!(hardware.lock&&fc?.[5]&&!sensor.active&&(calibration.saved||!sensor.ready));
+      if(finish)finish.hidden=!(hardware.lock&&fc?.[5]&&!calibration.pending);
       const disabledReason=calibration.gate(ctx,sensorControls());
       updateSensorStudio(root,sensor,{
         ctx,canStart:!disabledReason&&!hardware.busy&&!sensor.active,disabledReason,
@@ -315,5 +315,5 @@ export function mount(root) {
     if(last)update(last);
   });
   draw();
-  return {show,update,onPacket,reset,suspend};
+  return {show,update,onPacket,reset,suspend,sensorReport:link=>calibration.report(link)};
 }

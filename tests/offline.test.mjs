@@ -66,6 +66,7 @@ test('installed Pages release opens flight, the assembly viewer and scopes with 
   assert.equal(first.core,core);
   assert.equal(first.cached,first.total);
   assert(first.total > 100);
+  for (const file of ['ap-session-port.js','ap-worker.js','wifi.js']) assert.ok(cacheEntries.has(scope+file),file);
   cacheEntries.delete(scope+'assembly/f450_bottom_pdb.glb');
   assert.equal((await check()).cached,first.total-1);
   assert.equal((await check(true,'different-release')).cached,first.total-1);

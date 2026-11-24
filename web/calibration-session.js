@@ -1,11 +1,30 @@
 // Own the calibration evidence for one controller connection and one set of offsets.
-import {SensorCheck} from './calibration.js';
+import {SensorCheck, poses, FIT_ERROR_LIMIT} from './calibration.js';
 import {equal} from './config-commands.js';
 
 export class CalibrationSession {
   constructor() {
     this.sensor = new SensorCheck();
     this.reset();
+  }
+  get pending() {
+    return !!this.owner && !this.saved && (!!this.sensor.active || this.sensor.ready ||
+      this.sensor.needsRetry || this.sensor.phase==='error');
+  }
+  report(link) {
+    if (!this.owner || this.owner.link!==link || this.owner.host!==link.session || this.owner.boot!==link.fcSession)
+      return null;
+    const sensor=this.sensor, quality=sensor.quality;
+    const round=value=>Number(value.toFixed(4));
+    return {
+      state:this.saved?'saved':sensor.phase, detail:sensor.note, fit_limit_g:FIT_ERROR_LIMIT,
+      max_fit_error_g:quality ? round(quality.maxError) : null,
+      faces:poses.map(([name],i)=>({
+        name, captured:sensor.faces.has(i),
+        raw_mean_g:sensor.faces.get(i)?.map(round) ?? null,
+        last_fit_error_g:quality ? round(quality.faceErrors[i]) : null
+      }))
+    };
   }
   reset() {
     this.sensor.clear();
@@ -39,6 +58,12 @@ export class CalibrationSession {
     return owner && ctx?.link === owner.link && ctx.link.session === owner.host &&
       ctx.link.fcSession === owner.boot && ctx.model.get(130, now, 500)?.[15] === owner.kit;
   }
+  retry(ctx, controls, now = performance.now()) {
+    this.sync(ctx,controls,now);
+    const reason = this.gate(ctx,controls,now);
+    if (reason || !this.sameOwner(ctx,now) || !this.sensor.retryFaces(now))
+      throw Error(reason || 'Calibration session changed. Start a new calibration.');
+  }
   stop(note) {
     if (this.sensor.active) this.sensor.stop(note);
   }
@@ -65,7 +90,7 @@ export class CalibrationSession {
       this.invalidate('Controller sensor verification changed.');
       return;
     }
-    if (!this.saved && this.sensor.ready) {
+    if (!this.saved && (this.sensor.ready || this.sensor.needsRetry)) {
       const status=ctx.model.get(120,now,500),setup=ctx.model.get(130,now,500);
       if (!controls.confirmed || !controls.entered || !setup?.[0] || setup[1] || setup[8] || [1,2].includes(setup[3]) || status?.[0]!==false) {
         this.invalidate('Setup conditions changed. Repeat the calibration.');

@@ -40,6 +40,21 @@ test('System connection and diagnostics show the active path and total received 
   assert.equal(diagnostics(playback).port,null);assert.equal(diagnostics(playback).host_session,null);assert.equal(diagnostics(playback).link_frames,null);
 });
 
+test('copy includes packets newer than the last repaint, keeps replay at its playhead and separates past sessions',()=>{
+  const ctx=sample(), sensorReport={state:'review',max_fit_error_g:.18};
+  ctx.sensorReport=()=>sensorReport;
+  for(const id of [21,120,130])ctx.model.frames.set(id,{at:1060,values:[id]});
+  const live=diagnostics(ctx,1090);
+  for(const id of [21,120,130])assert.equal(live.groups[id].age_s,.03);
+  assert.deepEqual(live.imu_calibration,sensorReport);
+  const replay=diagnostics({...ctx,replay:true},8000);
+  assert.equal(replay.groups[21],undefined);assert.equal(replay.imu_calibration,undefined);
+  ctx.link.lastConnection={page:'configuration/imu',reason:'Kit WebSocket closed (code 1006).'};
+  const offline=diagnostics({...ctx,state:'error'},1100);
+  assert.equal(offline.host_session,null);assert.equal(offline.last_connection.page,'configuration/imu');
+  assert.equal(offline.imu_calibration,undefined);
+});
+
 test('Scopes distinguishes physical PPM assignments from accepted logical slots and hides invalid frames',()=>{
   const ctx=sample();
   const accepted=receiverReadout(ctx,false);

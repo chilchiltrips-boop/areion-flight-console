@@ -11,7 +11,7 @@ const instructions = [
   'Turn the frame over with its top facing down.'
 ];
 const axes = ['X', 'Y', 'Z'];
-const faceLabels = {captured:'Captured',holding:'Capturing',next:'Suggested',waiting:'Waiting'};
+const faceLabels = {captured:'Captured',holding:'Capturing',next:'Suggested',waiting:'Waiting',retry:'Repeat'};
 const empty = '—';
 const bindings = new WeakMap();
 const unitValue = (value, precision) => Number.isFinite(value) ? value.toFixed(precision) : empty;
@@ -52,6 +52,7 @@ export function sensorStudio() {
     '<span>'+field('detail','Hold the frame still on each side.')+'</span></div>'+
     '<div class="imu-progress"><progress aria-label="Current position capture" max="100" value="0"></progress>'+field('percent','0%')+'</div>'+
     '<div class="imu-actions"><button class="cfg-btn cfg-primary" type="button" data-act="start-sensor" disabled>Start calibration</button>'+
+    '<button class="cfg-btn cfg-primary" type="button" data-kit="retry-sensor" hidden disabled>Repeat highlighted faces</button>'+
     '<button class="cfg-btn" type="button" data-act="cancel-sensor" hidden>Cancel</button>'+
     '<button class="cfg-btn cfg-primary" type="button" data-kit="imu" hidden disabled>Save calibration to kit</button></div></section></div>'+
     '<section class="imu-card imu-readings"><header class="imu-heading"><h3>Sensor readings</h3>'+field('result','Awaiting calibration')+'</header>'+
@@ -77,7 +78,7 @@ function bind(panel) {
     guide: node('[data-sensor-guide]'), live: node('[data-sensor-live]'),
     placeholder: node('[data-sensor-placeholder]'), signal: node('[data-sensor-signal]'),
     start: node('[data-act="start-sensor"]'), cancel: node('[data-act="cancel-sensor"]'),
-    save: node('[data-kit="imu"]'), progress: node('progress'), quality: node('.imu-quality')
+    retry: node('[data-kit="retry-sensor"]'), save: node('[data-kit="imu"]'), progress: node('progress'), quality: node('.imu-quality')
   };
   bindings.set(panel,view);
   return view;
@@ -86,13 +87,18 @@ function bind(panel) {
 function captureMessage(sensor, options, next) {
   if (options.working) return ['Kit operation in progress', 'Waiting for the controller’s reply.'];
   if (options.saved) return ['Calibration saved', 'The kit confirmed the offsets and sensor check.'];
-  if (sensor.phase === 'error') return ['Calibration needs a new run', sensor.note];
+  if (sensor.needsRetry) return ['Repeat '+sensor.quality.failed.map(i=>shortNames[i]).join(' · '), sensor.note];
+  if (sensor.phase === 'error') return ['Calibration could not finish', sensor.note];
   if (sensor.ready) return ['Calibration ready to save', 'Review the readings, then save the offsets to the kit.'];
   if (sensor.phase === 'stopped') return ['Calibration stopped',sensor.note || options.disabledReason];
   if (!sensor.active) return ['Six-position calibration', options.disabledReason || 'Start once, then hold the frame still on each of its six sides.'];
   if (sensor.phase === 'holding') return ['Hold still · '+shortNames[sensor.detected], 'Keep the frame still for three seconds while samples are collected.'];
   if (Number.isInteger(sensor.detected) && sensor.faces.has(sensor.detected)) {
     return [shortNames[sensor.detected]+' captured', instructions[next] || 'All positions captured.'];
+  }
+  if (sensor.quality?.failed.length) {
+    const face = sensor.detected ?? next;
+    return ['Align '+shortNames[face], sensor.detected===null ? instructions[face] : sensor.note];
   }
   return ['Move to an uncaptured position', sensor.note || instructions[next]];
 }
@@ -123,7 +129,7 @@ export function updateSensorStudio(root,sensor,options={}) {
   const active = !!sensor.active;
   const holding = sensor.phase==='holding';
   const done = sensor.faces.size;
-  const target = holding && Number.isInteger(sensor.detected) ? sensor.detected : sensor.nextPose;
+  const target = sensor.needsRetry ? sensor.quality.failed[0] : holding && Number.isInteger(sensor.detected) ? sensor.detected : sensor.nextPose;
   const targetIndex = Number.isInteger(target) && poses[target] ? target : 0;
   const finished = sensor.ready || saved;
   const current = sensor.detected;
@@ -146,11 +152,10 @@ export function updateSensorStudio(root,sensor,options={}) {
     write('angle'+i,Number.isFinite(angle)?signed(angle,1)+'°':empty);
   }
   for (let i=0;i<view.faces.length;i++) {
-    const state = sensor.faces.has(i) ? 'captured' : holding && current===i ? 'holding' : active && target===i ? 'next' : 'waiting';
-    if (view.faces[i].dataset.state !== state) {
-      view.faces[i].dataset.state = state;
-      write('face'+i,faceLabels[state]);
-    }
+    const flag = sensor.quality?.failed.includes(i) && (sensor.needsRetry || active && !sensor.faces.has(i));
+    const state = holding && current===i ? 'holding' : flag ? 'retry' : sensor.faces.has(i) ? 'captured' : active && target===i ? 'next' : 'waiting';
+    if (view.faces[i].dataset.state !== state) view.faces[i].dataset.state = state;
+    write('face'+i,state==='retry' ? 'Repeat · '+sensor.quality.faceErrors[i].toFixed(3)+' g error' : faceLabels[state]);
   }
   const [instruction,detail] = captureMessage(sensor,{working,saved,disabledReason:reason},targetIndex);
   write('instruction',instruction);
@@ -162,12 +167,17 @@ export function updateSensorStudio(root,sensor,options={}) {
   view.start.disabled = working || !canStart;
   const startLabel = sensor.phase==='idle' && !saved ? 'Start calibration':'Restart calibration';
   if (view.start.textContent!==startLabel) view.start.textContent=startLabel;
-  view.start.classList.toggle('cfg-primary',!sensor.ready || saved);
+  view.start.classList.toggle('cfg-primary',!sensor.ready && !sensor.needsRetry || saved);
+  view.retry.hidden = !sensor.needsRetry;
+  if (sensor.needsRetry) {
+    const label = sensor.quality.failed.length===1 ? 'Repeat highlighted face' : 'Repeat highlighted faces';
+    if (view.retry.textContent!==label) view.retry.textContent=label;
+  }
   view.cancel.hidden = !active;
   view.save.hidden = !sensor.ready || saved;
   if ('canSave' in options) view.save.disabled = !options.canSave || working;
   const stored = options.stored ?? ctx?.group(130)?.[5];
-  write('result', saved?'Saved on kit':sensor.ready?'Proposed offsets':stored?'Kit calibration recorded':'Awaiting calibration');
+  write('result', saved?'Saved on kit':sensor.ready?'Proposed offsets':sensor.needsRetry?'Outside fit limit':stored?'Kit calibration recorded':'Awaiting calibration');
   for (let i=0;i<3;i++) {
     const offset = sensor.offsets?.[i], reported = accel?.[i], currentOffset=base?.[i];
     const corrected = Number.isFinite(offset)&&Number.isFinite(currentOffset) ? reported-currentOffset+offset : reported;

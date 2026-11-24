@@ -97,15 +97,30 @@ test('the shared panel requires consent and a lock, then captures and saves from
       assert.ok(session.sensor.active);
       assert.equal(!!panel.allowed('imu'),false);
       let at=session.sensor.active.started;
-      for(const [,axis,sign] of poses){
+      for(const [face,axis,sign] of poses){
         const acc=f.rows[6].map((off,i)=>off+(axis===i?sign:0));
+        if(face==='Nose up')acc[1]+=.18;
         for(let i=0;i<=33;i++){
           session.onPacket({at,group:21,event:true,values:[0,0,0,...acc]},f.ctx,consent);at+=100;
         }
       }
+      assert.equal(session.sensor.needsRetry,true);
+      const report=session.report(f.link);
+      assert.equal(report.state,'review');
+      assert.equal(report.faces[1].name,'Nose up');assert.equal(report.faces[1].last_fit_error_g,.18);
+      assert.equal(session.report({...f.link,session:8}),null);
+      assert.equal(!!panel.allowed('imu'),false);
+      assert.equal(!!panel.allowed('retry-sensor'),true);
+      await panel.run('retry-sensor');
+      assert.equal(session.sensor.faces.size,5);
+      // Match a real monotonic clock when the simulated first sweep took no wall time.
+      at=session.sensor.active.started;
+      const corrected=f.rows[6].map((offset,i)=>offset-(i===0?1:0));
+      for(let i=0;i<=31;i++)session.onPacket({at:at+i*100,group:21,event:true,values:[0,0,0,...corrected]},f.ctx,consent);
       assert.equal(!!panel.allowed('imu'),true);
       await panel.run('imu');
       assert.equal(session.saved,true);
+      assert.equal(session.report(f.link).state,'saved');
       assert.equal(!!panel.allowed('imu'),false);
       assert.equal(f.actions.length,1);
     }

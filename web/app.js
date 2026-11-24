@@ -1,5 +1,6 @@
 import {UsbTelemetry} from './usb.js';
-import {WifiPort, DEFAULT_AP_URL} from './wifi.js';
+import {DEFAULT_AP_URL} from './wifi.js';
+import {ApSessionPort} from './ap-session-port.js';
 import {Instruments} from './instruments.js';
 import {mountHeader} from './header.js';
 import {browserAccess} from './browser-access.js';
@@ -48,6 +49,7 @@ function dropReplay() {
   $('replay').hidden = true;
 }
 const link = new UsbTelemetry({
+  route: () => [shell.page,shell.sub].filter(Boolean).join('/'),
   onTraffic(sample) { header.traffic(sample); },
   onPort(port) { header.confirmed(port); },
   onStatus(update) {
@@ -129,7 +131,7 @@ async function connect(mode, endpoint) {
   notice('');
   path = mode === 'ap' ? 'AP' : 'USB';
   if (mode === 'ap') {
-    await link.connect(new WifiPort(endpoint || DEFAULT_AP_URL),{source:1,label:'AP Wi-Fi'});
+    await link.connect(new ApSessionPort(endpoint || DEFAULT_AP_URL),{source:1,label:'AP Wi-Fi'});
   } else {
     await link.connect(endpoint);
   }
@@ -189,7 +191,9 @@ function render() {
   const now = performance.now(), refresh = now - lastShellUpdate >= 150;
   if (!refresh && page !== 'flight') return;
   const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
-    withFirmwarePort,firmwareBusy,reconnectFirmwarePort:port=>header.reconnectFirmwarePort(port),path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
+    withFirmwarePort,firmwareBusy,reconnectFirmwarePort:port=>header.reconnectFirmwarePort(port),path:route,mode:header.mode,portLabel:header.endpointLabel,
+    get packetCount(){return replay ? replay.index : packetCount;},
+    sensorReport:()=>shell.modules.get('configuration')?.sensorReport(link),
     browser:{embedded:access.embedded, usb:access.usbIssue, ap:access.apIssue, offline:header.offline},
     get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},
     group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),

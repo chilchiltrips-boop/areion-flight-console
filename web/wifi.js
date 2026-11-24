@@ -2,7 +2,8 @@
 // are ordinary Areion Link v2 frames and use the same owner and ACK as USB.
 export const DEFAULT_AP_URL = 'ws://192.168.4.1:8081/areion';
 const POLL = 0x50, FRAME = 0x46, REPLY = 0x41;
-const MAX_FRAME = 1552, POLL_MS = 20, MAX_ROUND_TRIP_MS = 200;
+const MAX_FRAME = 1552, POLL_MS = 20;
+export const MAX_ROUND_TRIP_MS = 200, AP_CREDIT_MS = 120;
 const SUBPROTOCOL = 'areion-link-v2';
 
 export function apUrl(endpoint = DEFAULT_AP_URL) {
@@ -99,14 +100,15 @@ export class WifiPort {
           this.readController.enqueue(new Uint8Array(data, 9));
         }
       };
-      socket.onerror = () => fail(errorHint);
-      socket.onclose = () => fail(ready ? 'AP Wi-Fi disconnected.' : errorHint);
+      // An established WebSocket reports error and then close; the latter has the code.
+      socket.onerror = () => { if (!ready) fail(errorHint); };
+      socket.onclose = event => fail(ready ? 'Kit WebSocket closed (code '+event.code+').' : errorHint);
     });
   }
 
   write(bytes) {
     const ws = this.socket, credit = this.credit;
-    if (!ws || ws.readyState !== WebSocket.OPEN || !credit || performance.now() - credit.at > 120)
+    if (!ws || ws.readyState !== WebSocket.OPEN || !credit || performance.now() - credit.at > AP_CREDIT_MS)
       throw Error('AP link has no fresh response.');
     if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MAX_FRAME || ws.bufferedAmount > MAX_FRAME)
       throw Error('AP frame refused.');

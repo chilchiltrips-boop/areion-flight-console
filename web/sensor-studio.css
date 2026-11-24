@@ -99,6 +99,9 @@
 .imu-faces li[data-state=next] {border-color:#8c7959}
 .imu-faces li[data-state=next] .imu-face-mark {border-color:var(--imu-amber);background:#514734}
 .imu-faces li[data-state=next] div>span {color:var(--imu-amber)}
+.imu-faces li[data-state=retry] {border-color:var(--imu-amber);background:#433829}
+.imu-faces li[data-state=retry] div>span,.imu-studio[data-phase=review] .imu-instruction>strong {color:var(--imu-amber)}
+.imu-faces li[data-state=retry] .imu-face-mark {border-color:var(--imu-amber);background:var(--imu-amber)}
 .imu-faces li[data-state=holding] {border-color:#75cdbb;background:#1c4244}
 .imu-faces li[data-state=holding] .imu-face-mark {border-color:var(--imu-green);background:var(--imu-green);box-shadow:0 0 0 3px #89e2cc1f}
 .imu-faces li[data-state=captured] {background:#1d393d;border-color:#3b625e}
