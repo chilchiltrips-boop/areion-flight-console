@@ -24,8 +24,8 @@ function bounded(promise, ms, message) {
 export class UsbTelemetry {
   static supported() { return Boolean(globalThis.isSecureContext && globalThis.navigator?.serial?.requestPort); }
 
-  constructor({onStatus=()=>{},onData=()=>{},onTraffic=()=>{},onPort=()=>{},route=()=>null}={}) {
-    this.onStatus=onStatus; this.onData=onData; this.onTraffic=onTraffic; this.onPort=onPort;
+  constructor({onStatus=()=>{},onData=()=>{},onTraffic=()=>{},onPort=()=>{},onResult=()=>{},route=()=>null}={}) {
+    this.onStatus=onStatus; this.onData=onData; this.onTraffic=onTraffic; this.onPort=onPort; this.onResult=onResult;
     this.current=null; this.closing=null; this.state='offline'; this.route=route; this.lastConnection=null;
     this.stats={sent:0,received:0,lastRxAt:null};
   }
@@ -114,6 +114,13 @@ export class UsbTelemetry {
     run.pending=null;
     if (!p) return;
     if (p.signal) p.signal.removeEventListener('abort',p.abort);
+    if (p.resolve) {
+      const privateGroup=[138,139].includes(p.group);
+      const name=privateGroup?'USB Wi-Fi settings':p.type==='ACTION'?p.values[0]:p.type+(p.saved?' saved':'');
+      this.onResult({kind:'reply',group:p.group,name,status:err?(p.saved&&err.code==='NOT_SAVED'?'info':'error'):'ok',
+        detail:err?(privateGroup?'Wi-Fi settings request failed.':err.message):undefined,
+        values:privateGroup?undefined:{sequence:p.seq,attempts:p.attempt,elapsed_ms:Math.round(now()-p.created),request:p.values,reply:values}},run);
+    }
     if (err) p.reject?.(err);
     else p.resolve?.(values);
   }
@@ -217,20 +224,26 @@ export class UsbTelemetry {
 
   rpc(type,group,values,{signal}={}) {
     const run=this.current, priority=type==='ACTION' ? stopPriority(group,values?.[0]) : 0;
+    const reject=error=>{
+      this.onResult({kind:'reply',group,name:[138,139].includes(group)?'USB Wi-Fi settings':type==='ACTION'?values?.[0]:type,
+        status:'error',detail:[138,139].includes(group)?'Wi-Fi settings request failed.':error.message,
+        values:[138,139].includes(group)?undefined:{attempts:0,code:error.code}},run);
+      return Promise.reject(error);
+    };
     if (this.firmwareMaintenance && type!=='READ' && !priority)
-      return Promise.reject(fail('USB firmware transfer in progress.','FLASH_BUSY'));
+      return reject(fail('USB firmware transfer in progress.','FLASH_BUSY'));
     const canInspect=type==='READ' && this.state==='stale';
     if ((group===138 || group===139) && run?.source!==2)
-      return Promise.reject(fail('Connect the kit directly over USB.','USB_REQUIRED'));
+      return reject(fail('Connect the kit directly over USB.','USB_REQUIRED'));
     if(!run?.fc || run.closing || !priority && !canInspect && this.state!=='connected')
-      return Promise.reject(fail('Connect to a live controller first.','OFFLINE'));
-    if(signal?.aborted)return Promise.reject(fail('Request cancelled.','CANCELLED'));
+      return reject(fail('Connect to a live controller first.','OFFLINE'));
+    if(signal?.aborted)return reject(fail('Request cancelled.','CANCELLED'));
     const seq=nextSeq(run.seq), schema=schemaFor(group)??1;
     let frame;
     try {frame=encodeCommand(type,group,run.session,seq,values);}
-    catch(error){return Promise.reject(error);}
-    if(run.pending?.priority>priority && priority)return Promise.reject(fail('A higher priority stop is in progress.','STOP_PENDING'));
-    if(run.pending?.resolve && !priority)return Promise.reject(fail('Wait for the current kit operation.','BUSY'));
+    catch(error){return reject(error);}
+    if(run.pending?.priority>priority && priority)return reject(fail('A higher priority stop is in progress.','STOP_PENDING'));
+    if(run.pending?.resolve && !priority)return reject(fail('Wait for the current kit operation.','BUSY'));
     if(run.pending) {
       if(!run.pending.resolve && run.pending.type==='READ')run.reads.unshift(run.pending.group);
       this.finish(run,fail('Superseded by a newer request.','CANCELLED'));
@@ -268,6 +281,7 @@ export class UsbTelemetry {
     run.lastControl={at,values:[...values]};
     run.controlSeq=nextSeq(run.controlSeq);
     this.write(run,frame);
+    this.onResult({kind:'control',group:9,name:'TX channels',status:'submitted',values:[...values]},run);
     return true;
   }
 

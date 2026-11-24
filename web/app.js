@@ -1,3 +1,5 @@
+import {DiagnosticHistory} from './diagnostic-history.js';
+import {ControllerDiagnostics} from './diagnostic-report.js';
 import {UsbTelemetry} from './usb.js';
 import {DEFAULT_AP_URL} from './wifi.js';
 import {ApSessionPort} from './ap-session-port.js';
@@ -19,6 +21,15 @@ let recording = [], packetCount = 0;
 let replay = null, state = 'offline', page = 'welcome', path = 'USB';
 let nextPaint = 0, lastShellUpdate = -Infinity;
 let connecting = false, stopPending = null;
+const journal=new DiagnosticHistory();
+const controllerDiagnostics=new ControllerDiagnostics();
+let lastRun=null,lastEsc=null;
+function diagnosticScope(run=link.current){
+  const scope=run?{source:run.source===1?'ap':'usb',host_session:run.session,fc_session:run.fc||null,kit:run.latest?.get(130)?.values[15]??null}:lastRun??{source:path.toLowerCase()};
+  const context={...scope,page:[shell.page,shell.sub].filter(Boolean).join('/'),
+    step:shell.page==='configuration'?shell.modules.get('configuration')?.location?.():undefined};
+  return row=>journal.add({...context,...row});
+}
 const flightExtra = mountFlightExtra($('flight-page'));
 
 function text(el, value) {
@@ -31,6 +42,7 @@ function notice(message) {
 }
 function log(message) {
   if (!message) return;
+  if(!replay && message!==shell.lastEvent && message!==link.message)diagnosticScope()({kind:'event',name:'Console',status:'info',detail:message});
   shell.log(message);
   text($('session-status'),message);
 }
@@ -38,6 +50,7 @@ const shell = new ConsoleShell({
   select(next) {
     if (page === 'flight' && next !== page) stopSender('Left Flight Data');
     page = next;
+    if(!replay && link.current)diagnosticScope()({kind:'navigation',name:'Open page',status:'info'});
     lastShellUpdate = -Infinity;
     render();
   }
@@ -52,8 +65,13 @@ const link = new UsbTelemetry({
   route: () => [shell.page,shell.sub].filter(Boolean).join('/'),
   onTraffic(sample) { header.traffic(sample); },
   onPort(port) { header.confirmed(port); },
+  onResult(row,run){diagnosticScope(run)(row);},
   onStatus(update) {
     state = update.state;
+    if(state==='opening'){lastRun=null;lastEsc=null;controllerDiagnostics.reset();}
+    diagnosticScope()({kind:'connection',name:state,status:state==='error'?'error':state==='stale'?'warning':'info',detail:update.message+(state==='error'&&lastEsc===1?' · ESC request was saved for the next power-up.':''),
+      values:!link.current&&link.lastConnection?.host_session===lastRun?.host_session?link.lastConnection:undefined});
+    if(['offline','stale','error'].includes(state))void journal.flush();
     lastShellUpdate = -Infinity;
     log(update.message || state);
     if (state === 'opening') {
@@ -81,6 +99,9 @@ const link = new UsbTelemetry({
     render();
   },
   onData(row) {
+    if(row.group===130)lastEsc=row.values[3];
+    if(row.group===130 || !lastRun)lastRun={source:path.toLowerCase(),host_session:link.session,fc_session:link.fcSession,kit:link.current?.latest.get(130)?.values[15]??null};
+    controllerDiagnostics.packet(row,diagnosticScope());
     live.push(row);
     recording.push(row);
     packetCount++;
@@ -114,7 +135,8 @@ function leaveControls() {
   shell.modules.get('configuration')?.suspend?.();
 }
 window.addEventListener('blur', leaveControls);
-window.addEventListener('pagehide', leaveControls);
+window.addEventListener('pagehide',()=>{leaveControls();void journal.flush();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)void journal.flush();});
 document.addEventListener('visibilitychange', () => { if (document.hidden) leaveControls(); });
 async function disconnect() {
   if (flightExtra.running || stopPending) {
@@ -193,6 +215,7 @@ function render() {
   const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
     withFirmwarePort,firmwareBusy,reconnectFirmwarePort:port=>header.reconnectFirmwarePort(port),path:route,mode:header.mode,portLabel:header.endpointLabel,
     get packetCount(){return replay ? replay.index : packetCount;},
+    journal,diagnosticScope,clearDiagnosticEvents:()=>{shell.events.length=0;shell.lastEvent=null;link.lastConnection=null;},
     sensorReport:()=>shell.modules.get('configuration')?.sensorReport(link),
     browser:{embedded:access.embedded, usb:access.usbIssue, ap:access.apIssue, offline:header.offline},
     get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},

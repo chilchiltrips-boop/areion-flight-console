@@ -1,3 +1,4 @@
+import {ESC_STEP,escStates,escInstruction,markEsc,resumeEsc} from './esc-progress.js';
 import {defaults} from './config-commands.js';
 import {ConfigPanel,editor,extras} from './config-panel.js';
 import {airframe} from './airframe.js';
@@ -10,7 +11,6 @@ const panes={wizard:'Setup wizard',input:'Input / receiver',imu:'IMU',esc:'ESC /
 const steps=['Safety & connect','Aircraft profile','Input & wiring','Sensors','PPM receiver','ESC calibration','Motor outputs','Arming & flight modes','Review & save','Verify after restart'];
 const profiles=['Areion 450','Areion 250','Areion Quad X','Generic Quad X'];
 const sourceNames=['PPM receiver','AP Wi-Fi channels','USB channels'];
-const ends=['Not checked','Pending restart','Calibrating','Confirm ESC response','ESC response confirmed','Calibration skipped','Interrupted / failed'];
 const modes=['Angle','Rate / Acro'];
 const axes=['Roll','Pitch','Yaw'];
 const pidTabs=[
@@ -48,11 +48,12 @@ export function mount(root) {
   let endpoints=null,rxRun=false,statusRow=null;
   let tabRoots,sceneOrbit=0,profileEdited=false,responseAxis=0,responseAngle=0;
   let restartView=false,escProfile=1,resumeStep=false;
+  let routedKit=null, previousKit=null, sensorSignature='';
   const hardware=new ConfigPanel(root,{
     state:()=>({page,step,confirmed,profile:pickedProfile,endpoints,rxRun}),
     calibration,sensorControls,sensorVisible,
     clearReceiver:()=>{endpoints=null;rxRun=false;},
-    clearCaptures:()=>{calibration.stop('Calibration stopped. Start again when ready.');rxRun=false;},
+    clearCaptures:()=>{calibration.stop('Calibration stopped. Start again when ready.');reportSensor();rxRun=false;},
     resetDraft:()=>{calibration.reset();endpoints=null;rxRun=false;profileEdited=false;pickedProfile=0;}
   });
   let tripod=null,benchState=null;
@@ -60,7 +61,7 @@ export function mount(root) {
   window.addEventListener('blur',()=>suspend());
   window.addEventListener('pagehide',()=>suspend());
   document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();});
-  function directControls(){return '<div class="cfg-actions cfg-session">'+confirmation(confirmed)+extras.begin()+extras.finalize()+'</div>';}
+  function directControls(){return '<div class="cfg-actions cfg-session">'+confirmation(confirmed)+extras.begin(page==='esc'?'Start / resume ESC setup':undefined)+extras.finalize()+'</div>';}
   function sensorEntry(){
     return '<div class="cfg-actions cfg-session">'+confirmation(confirmed)+
       '<button type="button" class="cfg-btn" data-kit="begin" data-sensor-lock>Lock kit for calibration</button>'+
@@ -71,7 +72,7 @@ export function mount(root) {
   }
   function safetyPage(){
     return box('Remove propellers',canvas('profile')+'<p>Motors can start during kit setup. Keep all propellers removed until setup is complete.</p>'+confirmation(confirmed))+
-      box('Kit connection',row('Board','kit')+row('Firmware','firmware')+row('Arming','armed')+row('Setup lock','locked')+'<p>Begin setup to lock arming and load the current kit settings.</p>'+extras.begin()+extras.reset());
+      box('Kit connection',row('Board','kit')+row('Firmware','firmware')+row('Arming','armed')+row('Setup lock','locked')+'<p>Begin setup to lock arming and load the current kit settings.</p>'+extras.begin()+act('esc-entry','Open ESC calibration')+extras.reset());
   }
   function aircraft(){
     return box('Aircraft profile',opt('Aircraft preview',profiles,pickedProfile)+canvas('profile')+act('rotate','Rotate model')+'<p>Changing profile loads the profile’s default gains. Saving the current profile keeps tuned gains.</p>')+
@@ -87,8 +88,8 @@ export function mount(root) {
       '<section class="cfg-card cfg-wide"><h3>Physical PPM channels</h3>'+extras.mapping()+kvTable(['Channel','Function','Raw (µs)','Min','Center','Max','Direction'],Array.from({length:8},(_,i)=>channelCell(i)).join(''))+'<p>Min and max show captured ranges during this local check. Direction and channel assignment can be changed before saving.</p></section>';
   }
   function esc(){
-    return box('ESC calibration',opt('ESC profile',['Standard ESC · 50 Hz','PWM ESC · 250 Hz','OneShot ESC'],escProfile)+row('Kit state','escState')+row('Output PWM','pwm')+row('Firmware range (duty)','duty')+'<div class="cfg-sequence">'+['Schedule','Power cycle','Endpoints','Confirm'].map((s,i)=>'<span data-phase="'+i+'">'+s+'</span>').join('')+'</div>'+extras.esc())+
-      box('Motor outputs',motorRows()+row('Verified outputs','mask')+'<p>Readings are commanded pulses. Check rotation physically with the propellers removed.</p>'+extras.motors());
+    return box('ESC calibration',opt('ESC profile',['Standard ESC · 50 Hz','PWM ESC · 250 Hz','OneShot ESC'],escProfile)+row('Kit state','escState')+row('Output PWM','pwm')+row('Firmware range (duty)','duty')+'<div class="cfg-sequence">'+['Schedule','Power cycle','Endpoints','Confirm'].map((s,i)=>'<span data-phase="'+i+'">'+s+'</span>').join('')+'</div>'+extras.esc()+'<a href="#system/diagnostics" data-route="system/diagnostics">View diagnostics</a>')+(page==='esc'?
+      box('Motor outputs',motorRows()+row('Verified outputs','mask')+'<p>Readings are commanded pulses. Check rotation physically with the propellers removed.</p>'+extras.motors()):'');
   }
   function arming(){
     return box('Arming timings',extras.arming())+
@@ -98,7 +99,7 @@ export function mount(root) {
     return box(step===9?'Verify after restart':'Setup review',row('Kit identity','kit')+row('Firmware revision','revision')+row('Setup lock','locked')+row('Setup complete','complete')+row('Storage','storage'))+
       box('Controller checks',row('Sensors','sensorVerified')+row('Receiver','rxVerified')+row('ESC','escState')+row('Motors','mask')+(step===9?'<p>Save setup on the kit first. Reconnect the same kit after a restart to compare all eight saved groups.</p>'+extras.verify():extras.finalize()));
   }
-  function configurationResume(){return box('Resume setup',confirmation(confirmed)+extras.begin());}
+  function configurationResume(){return '<section class="cfg-card" data-resume><h3>Resume setup</h3>'+confirmation(confirmed)+extras.begin(step===ESC_STEP?'Resume ESC calibration':'Resume kit setup')+'</section>';}
   function wizard(){
     const work=[safetyPage,aircraft,wiring,sensorStudio,receiver,esc,()=>box('Motor outputs',motorRows()+row('Verified outputs','mask')+extras.motors())+box('Motor order',canvas('profile')+'<p>M1 front left · M2 front right · M3 rear right · M4 rear left.</p>'),arming,review,review];
     return '<div class="cfg-wiz"><nav class="cfg-steps" aria-label="Setup steps">'+steps.map((s,i)=>'<button class="cfg-step" type="button" data-step="'+i+'" '+(i===step?'aria-current="step"':'')+(i&&!confirmed&&!(restartView&&i===9)?' disabled':'')+'><span>'+String(i+1).padStart(2,'0')+'</span>'+s+'</button>').join('')+'</nav><div><div class="cfg-wiz-head"><div><small>Setup wizard</small><h2>'+steps[step]+'</h2></div><small>Step '+(step+1)+' / '+steps.length+'</small></div><div class="cfg-grid">'+(step>0&&(!confirmed||!hardware.entered)&&!restartView?configurationResume():'')+work[step]()+'</div><div class="cfg-wiz-actions">'+act('back','Back')+(step<9?act('next','Next','cfg-primary'):'')+'</div></div></div>';
@@ -175,15 +176,26 @@ export function mount(root) {
   }
   function gate(ctx) {return !ctx.replay && ctx.state==='connected' && ctx.group(120,500)?.[0]===false;}
   function clearSessions() {
-    calibration.reset();endpoints=null;rxRun=false;statusRow=null;
+    sensorSignature='';calibration.reset();endpoints=null;rxRun=false;statusRow=null;
     confirmed=false;linkId=null;
   }
   function syncSafety(ctx){
     const id=ctx.group(130)?.[15];
-    if(id&&linkId&&linkId!==id)clearSessions();
+    if(id&&linkId&&linkId!==id){clearSessions();hardware.reset();routedKit=null;}
     if(id)linkId=id;
     calibration.sync(ctx,sensorControls());
     if(rxRun&&(!gate(ctx)||!hardware.lock)){rxRun=false;endpoints=null;}
+  }
+  function reportSensor(){
+    if(!calibration.owner || !last)return;
+    const signature=[calibration.owner.boot,sensor.phase,sensor.detected,sensor.faces.size,calibration.saved,
+      sensor.note.replace(/[-+]?\d*\.?\d+/g,'#')].join('/');
+    if(signature===sensorSignature)return;
+    const report=calibration.report(last.link);
+    if(!report)return;
+    sensorSignature=signature;
+    const status=report.state==='error'?'error':['review','stopped'].includes(report.state)?'warning':'ok';
+    last.diagnosticScope?.()({kind:'calibration',name:'IMU · '+report.state,status,detail:report.detail,values:report});
   }
   function onPacket(packet,source) {
     if(root.hidden || document.hidden || !['usb','ap'].includes(source)) {
@@ -194,7 +206,7 @@ export function mount(root) {
       if(tripod.mirroring&&[7,22,112,120,122,131,132,134].includes(packet.group))tripod.receive(tripodTelemetry(last,packet.at));
     }
     if(sensor.active && last && sensorVisible()){
-      calibration.onPacket(packet,last,sensorControls());
+      calibration.onPacket(packet,last,sensorControls());reportSensor();
     }
     if(packet.group===131){
       if(rxRun){
@@ -217,6 +229,11 @@ export function mount(root) {
     const yes=v=>typeof v==='boolean'?(v?'Yes':'No'):blank;
     const triple=(arr,d=2)=>arr?arr.map(v=>fmt(v,'',d)).join(' / '):blank;
     syncSafety(ctx);
+    if(page==='wizard' && !restartView && !ctx.replay && ctx.state==='connected' && fc?.[15] && routedKit!==fc[15]){
+      routedKit=fc[15];
+      if(resumeEsc(fc)){resumeStep=true;step=ESC_STEP;draw();return;}
+      if(previousKit && previousKit!==routedKit){resumeStep=false;step=0;draw();return;}
+    }
     if(!confirmed&&step>0&&page==='wizard'&&!restartView&&!resumeStep){step=0;draw();return;}
     if(!profileEdited && cfg) pickedProfile=cfg[0];
     const values={
@@ -226,7 +243,7 @@ export function mount(root) {
       profile:profiles[cfg?.[0]],selected:sourceNames[get(122,500)?.[0]??get(110)?.[0]],active:['None','PPM','AP','USB'][get(122,500)?.[1]],inputHealth:s.input.label,
       flightCh:flight?'CH'+flight[0]:blank,modeLow:modes[flight?.[4]],modeHigh:modes[flight?.[5]],currentMode:s.status?modes[s.status[1]?0:1]:blank,
       armTime:fmt(arm?.[4],' s'),disarmTime:fmt(arm?.[5],' s'),idleTime:fmt(arm?.[6],' s'),armThr:fmt(arm?.[0],' µs'),
-      escState:ends[fc?.[3]],mask:fc?String([0,1,2,3].filter(i=>fc[4]&(1<<i)).length)+' / 4':blank,sensorVerified:yes(fc?.[5]),rxVerified:yes(fc?.[6]),
+      escState:escStates[fc?.[3]],mask:fc?String([0,1,2,3].filter(i=>fc[4]&(1<<i)).length)+' / 4':blank,sensorVerified:yes(fc?.[5]),rxVerified:yes(fc?.[6]),
       pwm:dev?dev[7]+' Hz · '+dev[8]+' bit':blank,duty:dev?dev[9]+' – '+dev[10]:blank,rawStatus:rawFresh?raw[8]+' channels':'Waiting for raw PPM',rxSamples:endpoints?.samples??0,
       angleScale:fmt(flight?.[1],'',3),rateScale:fmt(flight?.[2],'',3),yawScale:fmt(flight?.[3],'',3),deadband:fmt(cfg?.[6],' µs'),targets:triple(get(23,500)?.slice(7,10)),targetAngles:triple(get(23,500)?.slice(10,12)),pending:yes(pidStatus?.[0]),pidRev:pidStatus?.[1],pidSaved:pidStatus?.[2],pidError:pidStatus?pidStatus[3]||'OK':blank
     };
@@ -255,14 +272,25 @@ export function mount(root) {
     }
     const sel=root.querySelector('[data-select="Aircraft preview"]');if(sel)sel.value=String(pickedProfile);
     for(const ph of root.querySelectorAll('[data-phase]'))ph.classList.toggle('on',fc?.[3]!==5 && [1,2,3,4].slice(0,Math.min(4,fc?.[3]??0)).includes(Number(ph.dataset.phase)+1));
+    const guide=root.querySelector('[data-esc-guide]');
+    if(guide){
+      const phase=fc?.[3],done=[4,5].includes(phase),redo=hardware.confirm.has('redo');
+      const instruction=escInstruction(fc,cfg,!!(get(21,500)&&get(120,500)?.[2]));
+      if(guide.textContent!==instruction)guide.textContent=instruction;
+      const visible={redo:done,schedule:[0,6].includes(phase)||done&&redo,verify:phase===3,cancel:[1,2].includes(phase)};
+      for(const el of root.querySelectorAll('[data-esc-control]'))el.hidden=!visible[el.dataset.escControl];
+    }
     if(page==='pid')drawCurve(ctx);
     const chart=root.querySelector('[data-response]');if(chart)drawResponse(chart,ctx,responseAxis,!!responseAngle);
     const sensorPending=step===3 && (calibration.pending || !fc?.[5]);
-    const buttons={back:!step,next:!confirmed||(hardware.live&&!hardware.lock&&step<8)||(hardware.live&&sensorPending),
+    hardware.refresh(ctx);
+    const resume=root.querySelector('[data-resume]');if(resume)resume.hidden=hardware.lock;
+    const escPending=step===ESC_STEP && !ctx.replay && (ctx.state==='connected'||resumeStep) && ![4,5].includes(fc?.[3]);
+    const buttons={back:!step,next:escPending||!confirmed||(hardware.live&&!hardware.lock&&step<8)||(hardware.live&&sensorPending),
       'rx-capture':!rxRun&&(!confirmed||!hardware.lock||!gate(ctx)||!rawFresh||get(122,500)?.[0]!==0||!get(122,500)?.[2])};
     for(const [key,disabled] of Object.entries(buttons)){const b=root.querySelector('[data-act="'+key+'"]');if(b)b.disabled=!!disabled;}
     const rx=root.querySelector('[data-act="rx-capture"]');if(rx)rx.textContent=rxRun?'Stop capture':'Capture range';
-    hardware.refresh(ctx);
+    reportSensor();
     tripod?.update(tripodTelemetry(ctx));
     if(sensorVisible()){
       const lockControl=root.querySelector('[data-sensor-lock]');
@@ -278,13 +306,22 @@ export function mount(root) {
       });
     }
   }
-  function reset(){resumeStep=page==='wizard'&&step>0;last=null;clearSessions();hardware.reset();draw();}
+  function reset(){previousKit=linkId??previousKit;routedKit=null;resumeStep=page==='wizard'&&step>0;last=null;clearSessions();hardware.reset();draw();}
+  function moveStep(next){
+    if(linkId && last?.state==='connected'){
+      if(next===ESC_STEP)markEsc(linkId,true);
+      else if(step===ESC_STEP)markEsc(linkId,false);
+    }
+    hardware.pageChange();restartView=false;resumeStep=next===ESC_STEP;rxRun=false;step=next;
+    if(last?.state==='connected')last.diagnosticScope?.()({kind:'navigation',name:steps[next],status:'info'});
+    draw();
+  }
   root.addEventListener('wheel',event=>{if(event.target.matches('input[type="number"],select')&&document.activeElement===event.target)event.target.blur();},{passive:true});
   root.addEventListener('change',event=>{
     const el=event.target;
     if(el.hasAttribute('data-props')){
       confirmed=el.checked;
-      if(!confirmed){hardware.suspend();rxRun=false;if(page==='wizard')step=0;}
+      if(!confirmed){hardware.suspend();rxRun=false;if(page==='wizard'&&step!==ESC_STEP)step=0;}
       draw();
     } else if(el.dataset.select==='ESC profile'){escProfile=Number(el.value);hardware.confirm.delete('compatible');hardware.confirm.delete('tones');hardware.confirm.delete('skip');hardware.refresh(last);}
     else if(el.dataset.select==='Aircraft preview'){pickedProfile=Number(el.value);profileEdited=true;if(last)update(last);}
@@ -300,12 +337,13 @@ export function mount(root) {
     if(el.dataset.nav){last?.navigate('configuration/'+el.dataset.nav);return;}
     if(el.hasAttribute('data-pid')){last?.navigate('configuration/'+pidTabs[Number(el.dataset.pid)][0]);return;}
     if(el.closest('[data-tripod]'))return;
-    if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){hardware.pageChange();restartView=false;resumeStep=false;rxRun=false;step=Number(el.dataset.step);draw();}return;}
+    if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){moveStep(Number(el.dataset.step));}return;}
     switch(el.dataset.act){
 
+      case 'esc-entry':moveStep(ESC_STEP);return;
       case 'go-arm':step=7;resumeStep=true;last?.navigate('configuration/wizard');return;
       case 'check-tx':last?.checkTransmitter();break;
-      case 'next':case 'back':hardware.pageChange();restartView=false;resumeStep=false;rxRun=false;step=Math.max(0,Math.min(9,step+(el.dataset.act==='next'?1:-1)));if(step===4&&last?.group(134)?.[1]>0)step+=el.dataset.act==='next'?1:-1;draw();break;
+      case 'next':case 'back':{const delta=el.dataset.act==='next'?1:-1;let next=Math.max(0,Math.min(9,step+delta));if(next===4&&last?.group(134)?.[1]>0)next+=delta;moveStep(next);break;}
       case 'rotate':sceneOrbit=(sceneOrbit+45)%360;break;
       case 'start-sensor':void hardware.run('start-sensor');break;
       case 'cancel-sensor':calibration.stop('Calibration cancelled. Start again when ready.');break;
@@ -315,5 +353,5 @@ export function mount(root) {
     if(last)update(last);
   });
   draw();
-  return {show,update,onPacket,reset,suspend,sensorReport:link=>calibration.report(link)};
+  return {show,update,onPacket,reset,suspend,location:()=>page==='wizard'?steps[step]:panes[page],sensorReport:link=>calibration.report(link)};
 }

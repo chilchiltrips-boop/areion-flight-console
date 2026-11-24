@@ -1,4 +1,5 @@
-import {active, copyReport, downloadCsv, hookTabs, node, numeric, put} from './analysis-common.js';
+import {diagnosticFile} from './diagnostic-report.js';
+import {active, copyReport, diagnostics, downloadCsv, hookTabs, node, numeric, put} from './analysis-common.js';
 import {fields} from './telemetry-fields.js';
 
 const cached=new Set([2,3,4,6,7,110,112,121,125,132,134]);
@@ -35,14 +36,14 @@ export function mount(root){
   root.classList.add('ac-surface');
   root.innerHTML=`
     <nav class="ac-sectionbar ac-tabs" data-section aria-label="System sections">
-      <button data-tab="values">Live values</button><button data-tab="connections">Connection</button>
+      <button data-tab="values">Live values</button><button data-tab="connections">Connection</button><button data-tab="diagnostics">Diagnostics</button>
     </nav>
     <h1 class="ac-title">System</h1>
-    <div data-live>
-      <div class="ac-toolbar">
+    <div class="ac-toolbar">
         <div class="ac-filter"><input type="search" aria-label="Filter telemetry fields" placeholder="Filter fields"><span data-count></span></div>
-        <div class="ac-actions"><button data-csv>Export CSV</button><button data-copy>Copy diagnostics</button></div>
-      </div>
+        <div class="ac-actions"><button data-csv>Telemetry CSV</button><button data-copy>Copy all diagnostics</button><button data-history-csv>Export diagnostics CSV</button></div>
+    </div>
+    <div data-live>
       <nav class="ac-tabs ac-subtabs" data-logtabs aria-label="Live values views">
         <button data-tab="values">All values</button><button data-tab="events">Event log</button>
       </nav>
@@ -55,10 +56,20 @@ export function mount(root){
       <h2>Kit communication</h2><dl class="ac-details"></dl>
       <div class="ac-actions"><button data-connect>Connect</button></div>
     </section>
+    <section data-diagnostic-pane hidden>
+      <div class="ac-box"><h2>Diagnostic history</h2><p data-history-count></p>
+        <h3>Last ESC result</h3><p data-last-esc></p>
+        <h3>Latest reported issue</h3><p data-last-issue></p>
+        <div class="ac-actions"><button data-clear>Clear history</button><span data-clear-confirm hidden>Clear diagnostic records saved in this browser? <button data-clear-yes>Clear records</button> <button data-clear-no>Cancel</button></span></div>
+      </div>
+      <div class="ac-box"><h3>Recent results</h3><ol class="ac-log" data-result-log></ol></div>
+    </section>
     <div class="ac-note" role="status"></div>`;
   const find=selector=>root.querySelector(selector);
   const livePane=find('[data-live]'), valuesPane=find('[data-values]'), eventsPane=find('[data-events]'), connectionsPane=find('[data-connections]'), body=find('tbody');
   const info=find('.ac-note'), search=find('input'), count=find('[data-count]'), csv=find('[data-csv]'), connect=find('[data-connect]'), events=find('.ac-log');
+  const historyPane=find('[data-diagnostic-pane]'), clearConfirm=find('[data-clear-confirm]');
+  let historyKey='',lastHistoryRead=-Infinity,reading=false,working=false;
   const rows=[];
   for(const [id,[group,names]] of fields){
     for(const [index,name] of names.entries()){
@@ -75,11 +86,13 @@ export function mount(root){
   const setDetail=hookTabs(find('[data-logtabs]'),route);
   function route(name){if(ctx?.navigate)ctx.navigate('system/'+name);else select(name);}
   function select(name){
-    view=['values','events','connections'].includes(name)?name:'values';
+    view=['values','events','connections','diagnostics'].includes(name)?name:'values';
     const connection=view==='connections';
-    setSection(connection?'connections':'values'); setDetail(view);
-    find('h1').textContent=connection?'Connection':'System';
-    livePane.hidden=connection; valuesPane.hidden=view!=='values'; eventsPane.hidden=view!=='events'; connectionsPane.hidden=!connection;
+    const history=view==='diagnostics';
+    setSection(history?'diagnostics':connection?'connections':'values');setDetail(view);
+    historyPane.hidden=!history;clearConfirm.hidden=true;lastHistoryRead=-Infinity;
+    find('h1').textContent=history?'Diagnostics':connection?'Connection':'System';
+    livePane.hidden=connection||history; valuesPane.hidden=view!=='values'; eventsPane.hidden=view!=='events'; connectionsPane.hidden=!connection;
     find('.ac-filter').hidden=view!=='values';
     if(ctx)update(ctx);
   }
@@ -89,7 +102,48 @@ export function mount(root){
     put(count,visible.length+' fields');if(ctx)update(ctx);
   }
   search.oninput=filter;
-  root.querySelector('[data-copy]').onclick=()=>ctx&&copyReport(ctx,info);
+  const reportTask=fn=>async()=>{
+    if(!ctx||working)return;
+    working=true;
+    try{await fn();}catch(error){put(info,'Diagnostics: '+error.message);}finally{working=false;}
+  };
+  find('[data-copy]').onclick=reportTask(()=>copyReport(ctx,info));
+  find('[data-history-csv]').onclick=reportTask(async()=>{
+    put(info,'Preparing diagnostics CSV…');
+    const file=await diagnosticFile(ctx.journal,diagnostics(ctx),'csv'),link=node('a');
+    const url=URL.createObjectURL(file);link.href=url;link.download='areion-diagnostics-'+new Date().toISOString().replaceAll(':','-')+'.csv';
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    put(info,'Diagnostics CSV exported.');
+  });
+  find('[data-clear]').onclick=()=>{clearConfirm.hidden=false;};
+  find('[data-clear-no]').onclick=()=>{clearConfirm.hidden=true;};
+  find('[data-clear-yes]').onclick=reportTask(async()=>{
+    await ctx.journal.clear();ctx.clearDiagnosticEvents();clearConfirm.hidden=true;put(info,'Diagnostic history cleared.');update(ctx);
+  });
+  function updateHistory(){
+    const journal=ctx.journal;
+    if(!journal)return;
+    const now=performance.now();
+    if(!reading && now-lastHistoryRead>=3000){
+      reading=true;lastHistoryRead=now;journal.refresh().catch(error=>put(info,error.message)).finally(()=>{reading=false;});
+    }
+    const summary=journal.summary(),where=r=>[r.source?.toUpperCase(),r.page,r.step].filter(Boolean).join(' · ');
+    const describe=r=>[where(r),r.name,r.detail].filter(Boolean).join(' · ');
+    const issue=summary.issue,esc=summary.esc;
+    put(find('[data-last-esc]'),esc?new Date(esc.time).toLocaleString()+' · '+describe(esc):'No ESC result recorded.');
+    find('[data-last-issue]').dataset.severity=issue?.status??'';
+
+    put(find('[data-history-count]'),summary.count.toLocaleString()+' records · '+(summary.storage?'Temporary memory · '+summary.storage:'Saved in this browser')+(summary.lost?' · '+summary.lost+' records lost':''));
+    put(find('[data-last-issue]'),issue?new Date(issue.time).toLocaleString()+' · '+describe(issue):'No issue recorded.');
+    const signature=JSON.stringify(summary.recent.map(r=>[r.time,r.kind,r.name,r.status,r.detail]));
+    if(historyKey===signature)return;
+    historyKey=signature;
+    const log=find('[data-result-log]');log.replaceChildren();
+    for(const entry of summary.recent){
+      const li=node('li');li.dataset.severity=entry.status;li.append(node('time',new Date(entry.time).toLocaleTimeString()),node('span',entry.status.toUpperCase()+' · '+describe(entry)));log.append(li);
+    }
+    if(!log.children.length)log.append(node('li','No results recorded yet.'));
+  }
   connect.onclick=()=>ctx?.toggleUsb?.();
   csv.onclick=()=>{if(!ctx)return;try{downloadCsv(ctx);}catch(e){put(info,e.message);}};
   function update(next){
@@ -111,7 +165,7 @@ export function mount(root){
         for(const event of ctx.events.slice(-200).reverse()){const li=node('li');li.append(node('time',new Date(event.time).toLocaleTimeString()),node('span',event.message));events.append(li);}
         if(!events.children.length)events.append(node('li','No session events.'));
       }
-    }else {
+    }else if(view==='diagnostics'){updateHistory();}else {
       for(const [name,value] of connectionReadout(ctx)){
         let cell=detailCells.get(name);
         if(!cell){cell=node('dd');details.append(node('dt',name),cell);detailCells.set(name,cell);}

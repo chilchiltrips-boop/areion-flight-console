@@ -99,6 +99,9 @@
 #scopes-page .ac-plot canvas{height:clamp(9rem,calc((100dvh - 350px)/2),28rem);background:#10232c}
 .ac-axis-name{text-align:right;color:#aac0c7;font-size:.68rem}
 #scopes-page .ac-note:empty{display:none}
+#system-page [data-diagnostic-pane]{display:grid;gap:.75rem}
+#system-page [data-severity="error"],#system-page [data-severity="interrupted"]{color:#ffacaa}
+#system-page [data-severity="warning"]{color:#ffc48c}
 #scopes-page .ac-scope-health{margin:.35rem 0 0}
 @media(max-width:700px){
   #system-page .ac-table{min-width:37rem}

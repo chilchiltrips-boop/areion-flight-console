@@ -18,10 +18,17 @@ export class CalibrationSession {
     const round=value=>Number(value.toFixed(4));
     return {
       state:this.saved?'saved':sensor.phase, detail:sensor.note, fit_limit_g:FIT_ERROR_LIMIT,
+      baseline_offsets_g:sensor.baseline?.map(round)??null,
+      proposed_offsets_g:quality?.biasCorrection.map(round)??null,
+      gyro_residual_dps:sensor.gyro?.map(round)??null,
+      gyro_peak_dps:quality?round(quality.gyroPeak):null,
+      axis_fit_error_g:quality?.axisErrors.map(round)??null,
       max_fit_error_g:quality ? round(quality.maxError) : null,
       faces:poses.map(([name],i)=>({
         name, captured:sensor.faces.has(i),
         raw_mean_g:sensor.faces.get(i)?.map(round) ?? null,
+        gyro_mean_dps:sensor.gyroMeans.get(i)?.map(round)??null,
+        retry:quality?.failed.includes(i)??false,
         last_fit_error_g:quality ? round(quality.faceErrors[i]) : null
       }))
     };

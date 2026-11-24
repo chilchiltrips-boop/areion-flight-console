@@ -40,12 +40,14 @@ export function mount(root) {
   reconnect.onclick=()=>ctx?.reconnectFirmwarePort?.(flashHandle);
   flash.onclick=async()=>{
     if (flash.disabled || flashing) return;
+    const record=ctx.diagnosticScope?.();let lastStage='';
+    const trace=(status,detail)=>record?.({kind:'firmware',name:'USB firmware '+mode.value,status,detail});
     flashing=true;waitForBoot=false;verified=null;expectedKit=null;flashHandle=null;progress.value=0;flashControls();
     put(stage,'Preparing USB and checking the firmware package…');
     try {
       const result=await ctx.withFirmwarePort(mode.value,loadRelease,async(port,release)=>{
         put(find('release'),'v'+release.version);
-        const outcome=await flashPort(port,release,mode.value,(percent,message)=>{progress.value=percent;put(stage,message);});
+        const outcome=await flashPort(port,release,mode.value,(percent,message)=>{progress.value=percent;put(stage,message);if(message!==lastStage){lastStage=message;trace('progress',message);}});
         expectedKit=release.kitId || null;flashHandle=port;
         return {...outcome,version:release.version};
       });
@@ -56,9 +58,9 @@ export function mount(root) {
       put(stage,error.name==='NotFoundError'?'USB port selection cancelled.':
         /failed to connect|sync|timed out waiting for packet/i.test(error.message)?
         'Bootloader did not respond. Hold BOOT, tap RESET, release BOOT, then retry.':error.message || 'Firmware operation failed.');
-    } finally {flashing=false;safe.checked=false;flashControls();}
+    } finally {trace(verified?'ok':'error',stage.textContent);flashing=false;safe.checked=false;flashControls();}
   };
-  find('copy').onclick=()=>ctx && copyReport(ctx,note);
+  find('copy').onclick=()=>ctx && copyReport(ctx,note).catch(error=>put(note,error.message));
   read.onclick=async()=>{
     if(!ctx || busy || ctx.replay || ctx.state!=='connected')return;
     const request=++generation;busy=true;read.disabled=true;put(note,'Reading kit information…');
@@ -85,6 +87,7 @@ export function mount(root) {
       put(stage,!sameBoard?'Connected kit reports '+info[0]+'. Verify the flashed board using its original USB port.':
         info[0]===verified?'Kit reports firmware '+verified+'. Update confirmed.':
         'Connected kit reports '+info[0]+'. Expected '+verified+'. Check the chosen port and boot status.');
+      ctx.diagnosticScope?.()({kind:'firmware',name:'Verify running firmware',status:sameBoard&&info[0]===verified?'ok':'error',detail:stage.textContent});
     }
   }
   return {update,suspend(){wifi.reset();safe.checked=false;},reset(){generation++;busy=false;ctx=null;read.disabled=true;note.replaceChildren();wifi.reset();safe.checked=false;}};

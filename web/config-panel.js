@@ -1,3 +1,4 @@
+import {escPrerequisite,markEsc} from './esc-progress.js';
 import {defaults,equal,receiverValues,saveFlightInput,SetupKit} from './config-commands.js';
 
 const checked=(id,text)=>'<label class="cfg-check"><input type="checkbox" data-confirm="'+id+'"> '+text+'</label>';
@@ -17,17 +18,19 @@ const field=(label,el)=>'<label class="cfg-edit"><span>'+label+'</span>'+el+'</l
 const ch=(g,i,name)=>field(name,editor(g,i,name,choices.ch,1));
 const num=(g,i,name)=>field(name,editor(g,i,name));
 export const extras={
-  begin:()=>act('begin','Begin / resume kit setup'),
+  begin:(label='Begin / resume kit setup')=>act('begin',label),
   reset:()=>checked('reset','Erase all kit settings and restore defaults.')+act('reset','Reset all kit settings'),
   source:()=>field('Flight input',editor(134,1,'Flight input',choices.source))+act('source','Save input'),
   profile:()=>act('profile','Save aircraft profile'),
   mapping:()=>['Roll','Pitch','Throttle','Yaw'].map((t,i)=>ch(134,i+2,t)).join('')+num(134,6,'Stick deadband (µs)'),
   receiver:()=>checked('receiver','Channel directions verified, throttle low and sticks centered.')+act('receiver','Save receiver calibration'),
   reverse:i=>'<input type="checkbox" data-field="132:'+(i*4+3)+'" aria-label="Reverse CH'+(i+1)+'">',
-  esc:()=>checked('compatible','My ESC supports PWM endpoint calibration.')+act('schedule','Schedule next startup')+
-    '<p>Disconnect USB and LiPo after scheduling. Power up according to the ESC instructions, then reconnect here.</p>'+
-    checked('tones','I heard the expected ESC response.')+act('verify-esc','Confirm ESC response')+
-    checked('skip','My ESC does not need endpoint calibration.')+act('skip','Skip endpoint calibration')+act('stop-esc','Cancel ESC sequence'),
+  esc:()=>'<p data-esc-guide aria-live="polite"></p>'+
+    '<div data-esc-control="redo" hidden>'+checked('redo','Recalibrate ESCs and repeat motor-output checks.')+'</div>'+
+    '<div data-esc-control="schedule" hidden>'+checked('compatible','My ESC supports PWM endpoint calibration.')+act('schedule','Schedule next startup')+
+    checked('skip','My ESC does not need endpoint calibration.')+act('skip','Skip endpoint calibration')+'</div>'+
+    '<div data-esc-control="verify" hidden>'+checked('tones','I heard the expected ESC response.')+act('verify-esc','Confirm ESC response')+'</div>'+
+    '<div data-esc-control="cancel" hidden>'+act('stop-esc','Cancel ESC sequence')+'</div>',
   motors:()=>checked('frame','Propellers removed and frame secured.')+checked('battery','LiPo connected and polarity checked.')+
     '<label class="cfg-edit">Output <select data-mask aria-label="Motor output">'+['M1','M2','M3','M4','All four'].map((s,i)=>'<option value="'+[1,2,4,8,15][i]+'">'+s+'</option>').join('')+'</select></label>'+
     act('motor-start','Start test')+act('motor-stop','Stop')+
@@ -148,7 +151,7 @@ export class ConfigPanel {
   allowed(key){
     const s=this.fresh(130),cfg=this.ctx?.group(134),a=this.local.state(),check=k=>this.confirm.has(k);
     if(key==='motor-stop')return Boolean(this.motor||s?.[8])&&this.live;
-    if(key==='stop-esc')return this.live && s && [1,2,3,6].includes(s[3]);
+    if(key==='stop-esc')return this.live && s && [1,2].includes(s[3]);
     if(this.busy||this.pendingMotorStop||this.motor && key!=='record-min')return false;
     if(/^(read|saved|revert)-[23]$/.test(key))return this.live;
     if(key==='pid-2'||key==='pid-3')return this.live&&this.armed===false&&Boolean(this.ctx.group(Number(key.slice(-1))));
@@ -165,7 +168,7 @@ export class ConfigPanel {
         !this.local.calibration.gate(this.ctx,this.local.sensorControls());
       case 'imu':return this.local.sensorVisible() && this.local.calibration.ready(this.ctx,this.local.sensorControls());
       case 'receiver':return check('receiver')&&!a.rxRun&&cfg?.[1]===0&&(a.endpoints||s[6])&&this.fresh(131)?.[9];
-      case 'schedule':case 'skip':return s[5]&&(cfg?.[1]!==0||s[6])&&![1,2].includes(s[3])&&check(key==='schedule'?'compatible':'skip');
+      case 'schedule':case 'skip':return !escPrerequisite(s,cfg)&&([0,6].includes(s[3])||[4,5].includes(s[3])&&check('redo'))&&check(key==='schedule'?'compatible':'skip');
       case 'verify-esc':return s[3]===3&&check('tones')&&this.fresh(21)&&this.fresh(120)?.[2];
       case 'motor-start':return !s[8]&&this.motorOk();
       case 'record-min':return this.motor?.ready;
@@ -192,14 +195,18 @@ export class ConfigPanel {
   }
   async run(key){
     if(!this.allowed(key))return;
+    const record=this.ctx?.diagnosticScope?.();
+    const trace=(status,detail,values)=>record?.({kind:'operation',name:key,status,detail,values});
+    trace('started');
+
     if(key==='motor-stop'||key==='stop-esc'){
       const hadMotor=!!this.motor;this.epoch++;this.busy=false;this.stopMotor(true);
-      try{await this.ctx.link.action(135,[key==='motor-stop'?'MOTOR_STOP':'STOP',0,0,0,0]);this.info(hadMotor?'Motor test stopped.':'Stop acknowledged.');}
-      catch(error){this.info('Stop unconfirmed: '+error.message,true);}return;
+      try{await this.ctx.link.action(135,[key==='motor-stop'?'MOTOR_STOP':'STOP',0,0,0,0]);const detail=hadMotor?'Motor test stopped.':'Stop acknowledged.';this.info(detail);trace('ok',detail);}
+      catch(error){this.info('Stop unconfirmed: '+error.message,true);trace('error',error.message);}return;
     }
     if(key==='record-min'){
       for(let i=0;i<4;i++)if(this.mask&(1<<i))this.minima.set(i,this.pulse);
-      this.info('Starting pulse recorded: '+this.pulse+' µs. Stop and verify rotation.');return;
+      this.info('Starting pulse recorded: '+this.pulse+' µs. Stop and verify rotation.');trace('ok','Starting pulse recorded',{mask:this.mask,pulse_us:this.pulse});return;
     }
     const token=++this.epoch, link=this.ctx.link,guard=()=>{
       if(token!==this.epoch||this.root.hidden||document.hidden||this.ctx?.link!==link||!this.live)throw Error('Action cancelled or kit disconnected.');
@@ -207,8 +214,9 @@ export class ConfigPanel {
     const op=new SetupKit(link,guard);this.busy=true;this.info('Working…');this.refresh(this.ctx);
     try{
       const result=await this.perform(key,op);
-      guard();this.info(result||'Saved and verified on the kit.');
-    }catch(error){if(token===this.epoch)this.info(error.message,true);}
+      guard();const detail=result||'Saved and verified on the kit.';this.info(detail);
+      trace('ok',detail,key==='final'||key==='restart'?this.receipt:undefined);
+    }catch(error){trace(token===this.epoch?'error':'interrupted',error.message);if(token===this.epoch)this.info(error.message,true);}
     finally{if(token===this.epoch){this.busy=false;if(this.ctx)this.refresh(this.ctx);}}
   }
   async perform(key,op){
@@ -224,7 +232,7 @@ export class ConfigPanel {
     }
     switch(key){
       case 'begin':await op.begin();this.entered=true;return 'Setup lock verified. Flight arming is blocked.';
-      case 'reset':await op.reset();this.local.resetDraft();this.draft.clear();this.base.clear();this.minima.clear();this.confirm.clear();return 'Factory defaults saved and verified. Setup remains locked.';
+      case 'reset':await op.reset();markEsc(this.knownKit,false);this.local.resetDraft();this.draft.clear();this.base.clear();this.minima.clear();this.confirm.clear();return 'Factory defaults saved and verified. Setup remains locked.';
       case 'source':{
         const selected=this.snapshot(134,await op.read(134),[1])[1];
         await saveFlightInput(op.link,selected,{wizard:a.page==='wizard',guard:()=>op.check()});
@@ -267,9 +275,9 @@ export class ConfigPanel {
         await op.checkedAction('RX_OK',[1,0,0,0],s=>s[6]);
         this.clearFields(134,indices);this.clearFields(132,Array.from({length:32},(_,i)=>i));return 'Receiver calibration saved and verified.';
       }
-      case 'schedule':await op.checkedAction('ESC_SCHEDULE',[1,0,0,0],s=>s[3]===1);return 'Scheduled for the next kit startup.';
-      case 'verify-esc':await op.checkedAction('ESC_VERIFY',[1,0,0,0],s=>s[3]===4);return 'ESC response verified.';
-      case 'skip':await op.checkedAction('ESC_SKIP',[1,0,0,0],s=>s[3]===5);return 'ESC calibration skip saved.';
+      case 'schedule':await op.escAction('ESC_SCHEDULE',this.confirm.has('redo'));markEsc(this.knownKit,true);this.confirm.delete('redo');this.confirm.delete('compatible');this.confirm.delete('tones');return 'Scheduled for the next kit startup.';
+      case 'verify-esc':await op.escAction('ESC_VERIFY');return 'ESC response verified.';
+      case 'skip':await op.escAction('ESC_SKIP',this.confirm.has('redo'));this.confirm.delete('redo');this.confirm.delete('skip');return 'ESC calibration skip saved.';
       case 'motor-start':await op.locked();return this.startMotor(op);
       case 'motor-confirm':{
         const mask=this.mask,before=await op.read(134),values=[...before];
@@ -287,14 +295,14 @@ export class ConfigPanel {
         const message=await op.pid(g,values,false);this.clearFields(g,values.map((_,i)=>i));return message;
       }
       case 'final':{
-        const receipt=await op.finalize();this.receipt=receipt;this.entered=false;this.confirm.clear();
+        const receipt=await op.finalize();markEsc(receipt.kit,false);this.receipt=receipt;this.entered=false;this.confirm.clear();
         try{localStorage.setItem(receiptKey(receipt.kit),JSON.stringify(receipt));}catch{/* available for this tab */}
         return 'Setup saved and verified. Arming is available.';
       }
       case 'restart':{
         let receipt=this.receipt;
         if(receipt?.kit!==this.knownKit)try{receipt=JSON.parse(localStorage.getItem(receiptKey(this.knownKit)));}catch{receipt=null;}
-        await op.verifyRestart(receipt);return 'Restart verified. Active and stored settings match.';
+        await op.verifyRestart(receipt);this.receipt=receipt;return 'Restart verified. Active and stored settings match.';
       }
     }
   }

@@ -1,3 +1,4 @@
+import {diagnosticFile} from './diagnostic-report.js';
 import {serialize} from './records.js';
 
 export function node(tag, text, cls) {
@@ -20,7 +21,7 @@ export function diagnostics(ctx, now=performance.now()) {
   const clock=ctx.replay ? ctx.clock : Math.max(ctx.clock,now);
   const groups={};
   for(const [id,row] of ctx.model.frames){
-    if (!row || row.at>clock) continue;
+    if (!row || row.at>clock || id===138 || id===139) continue;
     groups[id]={values:row.values,age_s:Math.round(clock-row.at)/1000};
   }
   const connected=!ctx.replay && ctx.state==='connected' && !!ctx.link?.fcSession;
@@ -35,18 +36,22 @@ export function diagnostics(ctx, now=performance.now()) {
     ...(calibration ? {imu_calibration:calibration} : {}),
     received_packets:ctx.packetCount ?? ctx.rows.length, retained_packets:ctx.rows.length,
     ...(ctx.browser ? {browser:ctx.browser} : {}),
-    groups, events:ctx.events.slice(-30)
+    groups, events:ctx.events.slice()
   };
 }
 export async function copyReport(ctx, output) {
-  const text=JSON.stringify(diagnostics(ctx),null,2);
+  const file=diagnosticFile(ctx.journal,diagnostics(ctx),'json');
+  output.textContent='Preparing the diagnostic history…';
   try {
-    await navigator.clipboard.writeText(text);
-    output.replaceChildren(document.createTextNode('Diagnostics copied.'));
+    if(globalThis.ClipboardItem && navigator.clipboard?.write)
+      await navigator.clipboard.write([new ClipboardItem({'text/plain':file})]);
+    else await navigator.clipboard.writeText(await (await file).text());
+    output.textContent='Full diagnostics copied.';
   } catch {
-    const box=node('textarea');
-    box.setAttribute('aria-label','Diagnostics to copy');box.readOnly=true;box.value=text;
-    output.replaceChildren(box);box.select();
+    const blob=await file;
+    const box=node('textarea');box.setAttribute('aria-label','Full diagnostics to copy');
+    box.readOnly=true;box.value=await blob.text();
+    output.replaceChildren(node('span','Copy the selected report.'),box);box.select();
   }
 }
 export function hookTabs(root,change) {

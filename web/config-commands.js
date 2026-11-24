@@ -1,4 +1,5 @@
 // Areion Link v2 setup operations. Only addressed controller readbacks confirm a save.
+import {escPrerequisite} from './esc-progress.js';
 import {schemaFor,validGroup} from './protocol.js';
 
 export const defaults={
@@ -57,6 +58,20 @@ export class SetupKit {
   async checkedAction(name,args,verify){
     await this.locked();await this.call('action',135,[name,...args]);
     const readback=await this.read(130);requireThat(verify(readback),'Controller did not confirm '+name+'.');return readback;
+  }
+  async escAction(command,redo=false){
+    const setup=await this.locked();
+    if(command==='ESC_VERIFY'){
+      requireThat(setup[3]===3,'Read the current ESC state before confirming.');
+    }else{
+      requireThat(command==='ESC_SCHEDULE'||command==='ESC_SKIP','Unknown ESC action.');
+      requireThat([0,6].includes(setup[3])||redo&&[4,5].includes(setup[3]),'The ESC state changed. Read the result before starting another calibration.');
+      const reason=escPrerequisite(setup,await this.read(134));
+      requireThat(!reason,reason);
+    }
+    await this.call('action',135,[command,1,0,0,0]);
+    const readback=await this.read(130),expected={ESC_VERIFY:4,ESC_SKIP:5,ESC_SCHEDULE:1}[command];
+    requireThat(readback[15]===setup[15]&&readback[3]===expected,'Controller did not confirm '+command+'.');
   }
   async sensorState(kit){
     const setup=await this.locked();
