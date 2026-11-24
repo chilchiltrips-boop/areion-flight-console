@@ -1,7 +1,7 @@
 # Areion Flight Console 3.12.3
 
 Native Python / PySide6 desktop and Python SDK for **Areion FC A1**.
-Use the desktop with FC firmware **3.1.0 or 3.2.0**. For a new installation, pair Arduino main **3.2.0** with ZebjusAreionLink Arduino library **3.2.0**.
+The desktop supports FC firmware **3.1.0, 3.2.0, 3.3.0 and 3.4.0**. New installations use **Areion FC A1 3.4.0**, **ZebjusAreionLink 3.4.0** and **ZebjusPpm 1.0.1**.
 
 ## Welcome and saved input
 
@@ -17,7 +17,7 @@ Beside **Joystick TX** or **GPS map**, the default instrument view shows a horiz
 
 The Quad X follows roll, pitch and relative yaw. Its front marker helps you see the direction of rotation. The yaw tape uses the same gyro reference. **Zero yaw** sets the present direction to 0° in both views. At 80° of pitch or steeper the aircraft shows tilt only. Loss of IMU data clears the aircraft and its readings until a fresh sample arrives. Read the arm indication separately from the horizon. It comes from the controller’s status message. If status expires, the arm indication becomes unknown. If IMU readings expire, the horizon drops its live angles.
 
-**GPS map** opens an offline Natural Earth overview. Current Areion firmware 3.2.0 has no GPS position message. The map starts with “Waiting for GPS” and displays a marker only after a valid position arrives. A running or pending sender keeps the joystick view selected.
+**GPS map** opens an offline Natural Earth overview. Areion FC A1 3.4.0 has no GPS position message. The map starts with “Waiting for GPS” and displays a marker only after a valid position arrives. A running or pending sender keeps the joystick view selected.
 
 For a future FC GPS decoder, hand validated position updates to the GUI thread via `gps_map.update_fix(latitude, longitude, valid=has_fix, stamp=receipt_time, session=identity)`. Coordinates are decimal degrees. Use the monotonic host receipt time and the active link identity used by `set_link`. The map centers a fresh fix, clears it on loss or reconnect, and expires it after five seconds. The bundled 1:110m atlas shows regional coastlines.
 
@@ -137,7 +137,7 @@ Reference: https://betaflight.com/docs/development/API/Dshot
 
 1. Extract **AreionFC_PyCharm_v3.12.3** into a new folder and open that folder in PyCharm.
 2. Run `install_requirements.py`, then `main.py`, using the same interpreter. You can run `python main.py --check` to verify imports offline.
-3. If your kit already runs firmware **3.1.0 or 3.2.0**, connect it. For a fresh kit or older firmware, install the **3.2.0** Arduino main and matching **3.2.0** ZebjusAreionLink library. Keep the existing ZebjusPpm dependency. Open the complete `AreionUSBAP_CurrentMain` sketch directory with its `.ino` and both `.h` files together.
+3. Connect a kit running a supported firmware version. For a new kit, open **Firmware** in the web console and choose **Install / recover board** over USB. For Arduino IDE, download **Arduino sketch & libraries** on the same page, install both bundled libraries and open the complete `AreionBrowserAP` sketch folder.
 
 **Keep the LiPo/ESC supply disconnected while flashing.** A USB-only startup can consume a pending calibration request while the ESCs have no power. If that happens, schedule a new request in the wizard when needed and follow its power-cycle instructions.
 
@@ -307,7 +307,7 @@ python main.py
 
 The top connection bar offers USB, AP, or USB + AP; System → Connections shows detailed path status. Choose the actual serial port, default 115200 baud, or AP address 192.168.4.1 / UDP8080. A four-second USB startup wait allows the existing calibration. An abandoned owner may need up to six seconds to expire while disarmed. No reset command is sent.
 
-For AP, first join **aerion drone**, using the kit Wi-Fi password, in the computer's Wi-Fi settings. The GUI checks association separately from protocol connectivity. macOS may hide the SSID; UNKNOWN does not mean that FC communication failed. FC CONNECTED requires actual handshake, status and qualified 3.1.0 or 3.2.0 device-info replies. Firmware 2.5.0 cannot enforce the new setup lock or run the new calibration API; install all three matching release components before setup. Path status shows USB/AP confirmation and reply age independently. Opening a UDP socket alone is not connection proof.
+For AP, first join **aerion drone**, using the kit Wi-Fi password, in the computer's Wi-Fi settings. The GUI checks association separately from protocol connectivity. macOS may hide the SSID; UNKNOWN does not mean that FC communication failed. FC CONNECTED requires actual handshake, status and a device-info reply from a supported release. Firmware 2.5.0 cannot enforce the new setup lock or run the new calibration API; install all three matching release components before setup. Path status shows USB/AP confirmation and reply age independently. Opening a UDP socket alone is not connection proof.
 
 The Flight Data page selects **PPM**, **USB**, or **AP** as flight input. With the kit disarmed and the sender stopped, click **Save input**. The guarded action verifies both active selection and the stored boot source, so the choice is restored after startup. An already completed setup remains complete after successful verification; changing source never automatically arms. PPM requires previously verified receiver calibration/mapping. If that check is missing, select and calibrate PPM in the wizard first. AP/USB require a flight-mode channel in CH5–CH8. Connecting the USB cable or joining the AP only establishes telemetry. A PPM-controlled kit keeps PPM selected until you explicitly save a different input. Every source change resets controls and requires fresh neutral input. An unconfigured kit defaults to PPM and stays setup-locked. There is no automatic source fallback, background reconnect, control replay or arming. The wizard provides an explicit Reconnect button on every page.
 

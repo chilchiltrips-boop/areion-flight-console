@@ -1,8 +1,8 @@
 # Zebjus Areion Link 3.12.3
 
 Install this project's SDK into a Python 3.10+ environment. Scripts can use the
-array/command API without the Qt GUI. Use **desktop/SDK 3.12.3 + firmware 3.2.0 +
-ZebjusAreionLink Arduino library 3.2.0** together. Firmware 3.1.0 remains supported. The runtime rejects mismatched
+array/command API without the Qt GUI. Use **desktop/SDK 3.12.3 + firmware 3.4.0 +
+ZebjusAreionLink Arduino library 3.4.0** together. Firmware 3.1.0, 3.2.0 and 3.3.0 remain supported. The runtime rejects mismatched
 firmware. Existing wire framing remains protocol 2 and existing group schemas
 are retained, including setup groups 130/131/132/134/135 introduced in 3.0.0.
 Release 3.1.0 added PID status/action groups 136/137 and guarded RESET_ALL/INPUT_SAVE actions.
@@ -27,7 +27,7 @@ For the desktop GUI, Run `install_requirements.py` with the same PyCharm
 interpreter, then Run `main.py`. Alternatively run
 `python -m pip install -r requirements.txt` from this project folder;
 it installs the local SDK too.
-The desktop, console and SDK support FC firmware 3.1.0 and 3.2.0. For a new kit, pair the 3.2.0 firmware with the 3.2.0 Arduino library and keep all sketch files together.
+The desktop and SDK support FC firmware 3.1.0, 3.2.0, 3.3.0 and 3.4.0. The web console Firmware page supplies the current sketch and its two matching Arduino libraries.
 
 ## Responsibilities
 
