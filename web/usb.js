@@ -1,6 +1,6 @@
 import {encodeCommand, encodeRequest, FrameDecoder, matchesAck, newer, schemaFor, validGroup} from './protocol.js';
 
-import {reportsComponents} from './firmware-release.js';
+import {reportsComponents,reportsGyroCalibration} from './firmware-release.js';
 
 const SETTINGS = [125,110,7,112,134,130,121,2,3,4,6,132,136];
 const OWNER_LOST = new Set(['NOT_OWNER','SESSION_EXPIRED','SESSION_RETIRED']);
@@ -26,14 +26,14 @@ function bounded(promise, ms, message) {
 export class UsbTelemetry {
   static supported() { return Boolean(globalThis.isSecureContext && globalThis.navigator?.serial?.requestPort); }
 
-  constructor({onStatus=()=>{},onData=()=>{},onTraffic=()=>{},onPort=()=>{},onResult=()=>{},route=()=>null}={}) {
-    this.onStatus=onStatus; this.onData=onData; this.onTraffic=onTraffic; this.onPort=onPort; this.onResult=onResult;
+  constructor({onStatus=()=>{},onData=()=>{},onTraffic=()=>{},onPort=()=>{},onResult=()=>{},onApInterrupted=()=>{},route=()=>null}={}) {
+    this.onStatus=onStatus; this.onData=onData; this.onTraffic=onTraffic; this.onPort=onPort; this.onResult=onResult; this.onApInterrupted=onApInterrupted;
     this.current=null; this.closing=null; this.state='offline'; this.route=route; this.lastConnection=null;
     this.stats={sent:0,received:0,lastRxAt:null};
   }
 
-  get session() { return this.current?.fc ? this.current.session : null; }
-  get fcSession() { return this.current?.fc || null; }
+  get session() { return this.current?.fc && !this.current.verifying ? this.current.session : null; }
+  get fcSession() { return this.current?.verifying ? null : this.current?.fc || null; }
   get source() { return this.current?.source ?? null; }
 
   report(state,message) {
@@ -42,19 +42,19 @@ export class UsbTelemetry {
     this.onStatus({state,message});
   }
 
-  async connect(port=null,{source=2,label=source===1?'AP Wi-Fi':'USB'}={}) {
+  async connect(port=null,{source=2,label=source===1?'AP Wi-Fi':'USB',expected=null}={}) {
     if (this.current || this.closing) return;
     if (![1,2].includes(source) || source===1 && !port) throw fail('Select a compatible kit connection.');
     if (source===2 && !UsbTelemetry.supported()) {
       this.report('error','USB requires desktop Chrome or Edge on HTTPS.');
       return;
     }
-    const run={source,label,session:sessionId(),seq:0,controlSeq:0,fc:0,decoder:new FrameDecoder(),
+    const run={source,label,expected,verifying:!!expected,session:sessionId(),seq:0,controlSeq:0,fc:0,decoder:new FrameDecoder(),
       events:new Map(),latest:new Map(),reads:[...SETTINGS],pending:null,writing:false,
       lastRx:0,lastPing:0,lastPong:0,lastControl:null,neutralSince:null,closing:false};
     this.stats={sent:0,received:0,lastRxAt:null};
     this.current=run;
-    this.report('opening',port?'Opening '+label+'…':'Choose the Areion USB port.');
+    this.report('opening',expected?'Restoring AP telemetry to the same kit…':port?'Opening '+label+'…':'Choose the Areion USB port.');
     try {
       run.port=port || await navigator.serial.requestPort();
       if (this.current!==run) return;
@@ -110,6 +110,7 @@ export class UsbTelemetry {
     run.latest.set(msg.group,row);
     if(msg.group===125 && reportsComponents(msg.data[0]) && !run.requestedComponents){
       run.requestedComponents=true;run.reads.push(141);
+      if(reportsGyroCalibration(msg.data[0]))run.reads.push(142);
     }
     this.onData(row);
   }
@@ -151,12 +152,15 @@ export class UsbTelemetry {
       }
       if (p.type==='HELLO' && msg.type==='ACK' && msg.data.length===2 && msg.data[0]==='HELLO' &&
           Number.isInteger(msg.data[1]) && msg.data[1]>0 && msg.data[1]<=0xffffffff && msg.data[1]!==run.session) {
+        if(run.expected && msg.data[1]!==run.expected.boot){
+          void this.stop(run,'error','Kit restarted or changed. Choose Connect to start a new session.');return;
+        }
         run.fc=msg.data[1];
         run.lastRx=run.lastPong=run.lastPing=at;
         this.traffic('rx',msg.byteLength,at);
         this.finish(run,null,msg.data);
         if(run.source===2)this.onPort(run.port);
-        this.report('connected','Areion '+run.label+' connected.');
+        if(!run.verifying)this.report('connected','Areion '+run.label+' connected.');
         return;
       }
       const read=p.type==='READ' && msg.type==='DATA' && validGroup(msg.group,msg.schema,msg.data);
@@ -165,6 +169,13 @@ export class UsbTelemetry {
         run.lastPong=at;
         this.traffic('rx',msg.byteLength,at);
         this.finish(run,null,msg.data);
+        if (run.verifying) {
+          if (!read || msg.group!==130 || msg.data[15]!==run.expected.kit) {
+            void this.stop(run,'error','Kit identity changed. Choose Connect to select the kit.');return;
+          }
+          run.verifying=false;
+          this.report('connected','Areion '+run.label+' connected.');
+        }
         if(read && !p.saved && msg.group!==139) {
           if ([120,122,21,23,130].includes(msg.group)) run.lastRx=at;
           this.data(run,msg,at);
@@ -172,7 +183,7 @@ export class UsbTelemetry {
       }
       return;
     }
-    if(msg.group===139 || !run.fc || msg.session!==run.fc || msg.type!=='DATA' || !validGroup(msg.group,msg.schema,msg.data))return;
+    if(run.verifying || msg.group===139 || !run.fc || msg.session!==run.fc || msg.type!=='DATA' || !validGroup(msg.group,msg.schema,msg.data))return;
     const prior=run.events.get(msg.group);
     if(prior!==undefined && !newer(msg.seq,prior))return;
     run.events.set(msg.group,msg.seq);
@@ -182,14 +193,28 @@ export class UsbTelemetry {
   }
 
   writeFrame(run,frame) {
-    return run.writer.write(run.port.timestamped ? {bytes:frame,issuedAt:performance.timeOrigin+now()} : frame);
+    const payload=run.port.timestamped?{bytes:frame,issuedAt:performance.timeOrigin+now()}:frame;
+    return run.port.writeFresh ? run.port.writeFresh(payload) : run.writer.write(payload);
   }
 
   write(run,frame) {
+    const request=run.pending?.frame===frame?run.pending:null;
     run.writing=true;
     run.writeDone=bounded(this.writeFrame(run,frame),1100,run.label+' write timed out.')
       .then(()=>{if(this.current===run)this.traffic('tx',frame.length,now());})
-      .catch(error=>{if(this.current===run&&!run.closing)void this.stop(run,'error',run.label+' write failed. '+error.message);})
+      .catch(error=>{
+        if(this.current!==run || run.closing)return;
+        if(error.code!=='AP_FRAME_DROPPED'){void this.stop(run,'error',run.label+' write failed. '+error.message);return;}
+        if(request && run.pending===request){
+          if(request.resolve)this.finish(run,error);
+          else if(request.type==='READ' && !run.verifying){
+            run.reads.unshift(request.group);run.retryReadAt=now()+150;this.finish(run);
+          }
+        } else if(!request && run.fc){
+          run.neutralSince=null;run.lastControl=null;
+          this.report('stale','AP control frame expired. Sender stopped.');
+        }
+      })
       .finally(()=>{
         run.writing=false;
         if(this.current===run && run.pending?.sent===null) this.tick(run);
@@ -212,7 +237,7 @@ export class UsbTelemetry {
     const status=this.currentRow(run,120), input=this.currentRow(run,122), setup=this.currentRow(run,130);
     if(!status || !input || now()-run.lastRx>=500 || input[0]!==run.source || input[7]!==run.session)
       throw fail('Waiting for fresh flight status and the selected input on this connection.');
-    if(!setup || setup[0] || !setup[1] || setup[8])throw fail('Flight arming is locked or setup is incomplete.');
+    if(!setup || setup[0] || !setup[1] || setup[8] || run.latest.get(142)?.values[0]===1)throw fail('Flight arming is locked or setup is incomplete.');
     if(globalThis.document?.visibilityState==='hidden')throw fail('The flight controls are in a background tab.');
     return {input,status,ready:input[1]===run.source+1 && input[run.source===1?3:8] &&
       input[4] && input[5]===8 && input[6]<(run.latest.get(112)?.values[1]??250)};
@@ -242,7 +267,7 @@ export class UsbTelemetry {
     const canInspect=type==='READ' && this.state==='stale';
     if ((group===138 || group===139) && run?.source!==2)
       return reject(fail('Connect the kit directly over USB.','USB_REQUIRED'));
-    if(!run?.fc || run.closing || !priority && !canInspect && this.state!=='connected')
+    if(!run?.fc || run.verifying || run.closing || !priority && !canInspect && this.state!=='connected')
       return reject(fail('Connect to a live controller first.','OFFLINE'));
     if(signal?.aborted)return reject(fail('Request cancelled.','CANCELLED'));
     const seq=nextSeq(run.seq), schema=schemaFor(group)??1;
@@ -301,6 +326,12 @@ export class UsbTelemetry {
       else if(at-p.sent>=550){p.sent=at;this.write(run,p.frame);}
       return;
     }
+    if(run.verifying){
+      if(at-run.started>8500)void this.stop(run,'error','Could not verify the previous kit. Choose Connect to try again.');
+      else if(!p)this.startRequest(run,'READ',130);
+      else if(at-p.sent>=550){p.sent=at;this.write(run,p.frame);}
+      return;
+    }
     if(at-run.lastPong>4800){void this.stop(run,'error','Controller heartbeat stopped. Reconnect the kit.');return;}
     const stale=at-run.lastRx>1200;
     if(stale)this.report('stale','Waiting for fresh telemetry.');
@@ -327,14 +358,15 @@ export class UsbTelemetry {
     if(p && at-p.sent<800)return;
     if(p)this.finish(run);
     if(at-run.lastPing>=950){run.lastPing=at;this.startRequest(run,'PING');}
-    else if(run.reads.length)this.startRequest(run,'READ',run.reads.shift());
+    else if(run.reads.length && at>=(run.retryReadAt??0))this.startRequest(run,'READ',run.reads.shift());
   }
 
   async stop(run,state,message) {
     if(this.current!==run || run.closing)return this.closing;
-    if (run.fc) this.lastConnection={
+    if (run.fc && !run.verifying) this.lastConnection={
       source:run.source===1?'ap':'usb',page:this.route(),ended_at:new Date().toISOString(),
-      host_session:run.session,fc_session:run.fc,tx:this.stats.sent,rx:this.stats.received,reason:message
+      host_session:run.session,fc_session:run.fc,tx:this.stats.sent,rx:this.stats.received,reason:message,
+      ...(run.port?.timing?{ap_transport:{...run.port.timing}}:{})
     };
     run.closing=true; this.current=null;
     clearInterval(run.timer);
@@ -360,7 +392,14 @@ export class UsbTelemetry {
       }
     })();
     try {await this.closing;}
-    finally {this.closing=null;this.report(state,message);}
+    finally {
+      this.closing=null;this.report(state,message);
+      const kit=run.latest.get(130)?.values[15];
+      if(state==='error' && run.source===1 && run.fc && kit && !run.verifying &&
+         /link lost|write failed|heartbeat stopped|disconnected/i.test(message)){
+        this.onApInterrupted({boot:run.fc,kit,url:run.port.url});
+      }
+    }
   }
   async disconnect() {
     if(this.current)await this.stop(this.current,'offline','Disconnected.');

@@ -42,6 +42,8 @@ class KitSocket {
     const reply=(type,data)=>this.replies.push(packet({...msg,type,data}));
     if(msg.type==='HELLO'){this.connected=true;reply('ACK',['HELLO',fc]);}
     else if(msg.type==='PING')reply('ACK',['PONG']);
+    else if(msg.type==='READ' && msg.group===130)
+      reply('DATA',[false,true,7,4,15,true,true,false,false,1100,1100,1100,1100,1,'','A1_TEST']);
     else if(msg.type==='READ' && msg.group===110)reply('DATA',[1]);
     else if(msg.type==='READ')reply('ERROR',['UNAVAILABLE']);
   }

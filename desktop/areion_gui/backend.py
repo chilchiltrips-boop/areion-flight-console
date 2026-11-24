@@ -72,7 +72,7 @@ def open_link(options, cancel):
                 raise RuntimeError(f'Group {group}: {error}. Upload the matching Areion firmware and library.') from error
             if group == 125 and values[125][0] not in SUPPORTED_FIRMWARE:
                 raise RuntimeError('Upload the matching Areion firmware and library for the firmware setup ARM lock. '
-                                   'Supported firmware: 3.1.0, 3.2.0, 3.3.0 or 3.4.0. '
+                                   'Supported firmware: 3.1.0, 3.2.0, 3.3.0, 3.4.0 or 3.5.0. '
                                    f'Connected firmware reports {values[125][0]}.')
         return link, values, wifi, warnings
     except BaseException:

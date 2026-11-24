@@ -61,6 +61,23 @@ test('a command delayed in transit to the AP worker expires even with a new gate
   assert.ok(!history.some(e=>e.audit==='request'));await port.close();
 });
 
+test('a temporarily expired operator write rejects just that operation and allows fresh reads on the same session',async t=>{
+  const {port,native,history}=fixture();const link=new UsbTelemetry();
+  t.after(async()=>{await link.disconnect();await native.terminate();});
+  await link.connect(port,{source:1});await until(()=>link.state==='connected');
+  const host=link.session,fc=link.fcSession,writeFresh=port.writeFresh.bind(port);
+  let expire=true;
+  port.writeFresh=frame=>{
+    if(expire){expire=false;return writeFresh({...frame,issuedAt:frame.issuedAt-500});}
+    return writeFresh(frame);
+  };
+  await assert.rejects(link.action(135,['SENSOR_OK',1,0,0,0]),{code:'AP_FRAME_DROPPED'});
+  assert.equal(link.session,host);assert.equal(link.fcSession,fc);
+  assert.deepEqual(await link.readGroup(110),[1]);
+  assert.ok(!history.some(row=>row.command==='ACTION'));assert.equal(history.filter(row=>row.audit==='socket').length,1);
+  assert.ok(port.timing.dropped_writes>=1);
+});
+
 test('explicit AP disconnect releases ownership and stops polling without reconnecting',async t=>{
   const {port,native,history}=fixture();t.after(()=>native.terminate());
   const link=new UsbTelemetry();await link.connect(port,{source:1});
@@ -75,4 +92,23 @@ test('cancelling while the gateway is opening also settles the connect operation
   const opening=link.connect(port,{source:1});
   await link.disconnect();await opening;
   assert.equal(port.worker,null);assert.equal(link.session,null);assert.equal(link.state,'offline');
+});
+
+test('recovering telemetry verifies the same FC boot and physical kit before exposing a new session',async t=>{
+  const {port,native,history}=fixture(),states=[];
+  const link=new UsbTelemetry({onStatus:s=>states.push(s.state)});t.after(async()=>{await link.disconnect();await native.terminate();});
+  await link.connect(port,{source:1,expected:{boot:8451,kit:'A1_TEST'}});
+  await until(()=>link.state==='connected');
+  assert.equal(link.fcSession,8451);assert.deepEqual(states,['opening','handshake','connected']);
+  assert.deepEqual(history.filter(x=>x.command).slice(0,2).map(x=>x.command),['HELLO','READ']);
+  assert.ok(!history.some(x=>x.command==='ACTION'||x.command==='CONTROL'));
+});
+test('recovery fails closed for a different boot or kit without resending commands',async t=>{
+  for(const expected of [{boot:99,kit:'A1_TEST'},{boot:8451,kit:'OTHER'}]){
+    const {port,native,history}=fixture(),states=[];
+    const link=new UsbTelemetry({onStatus:s=>states.push(s.state)});t.after(()=>native.terminate());
+    await link.connect(port,{source:1,expected});await until(()=>link.state==='error');
+    assert.ok(!states.includes('connected'));assert.equal(link.session,null);
+    assert.match(link.message,/changed/);assert.ok(!history.some(x=>x.command==='ACTION'||x.command==='CONTROL'));
+  }
 });

@@ -1,7 +1,7 @@
 import {WifiPort, AP_CREDIT_MS, MAX_ROUND_TRIP_MS} from './wifi.js';
 
 export function runApWorker(scope) {
-  // Gateway polls have a 250 ms firmware deadline. Rendering a page or parsing a
+  // Keep gateway polling independent of rendering. Opening a page or parsing a
   // model on the window thread must not interrupt them. Only the window issues
   // Link commands; polling never creates or repeats a flight-control frame.
   const clock = () => performance.timeOrigin + performance.now();
@@ -21,12 +21,13 @@ export function runApWorker(scope) {
     if (closed) return;
     closed = true;
     await port?.close();
-    scope.postMessage(error ? {type:'error', message:error.message} : {type:'closed'});
+    scope.postMessage(error ? {type:'error', message:error.message,timing:port?.timing} : {type:'closed'});
     scope.close();
   }
 
   async function open(url) {
     port = new WifiPort(url);
+    port.onTiming=timing=>scope.postMessage({type:'timing',timing});
     await port.open();
     if (closed) return;
     const reader = port.readable.getReader();
@@ -53,9 +54,17 @@ export function runApWorker(scope) {
         case 'pull': waiting = true; deliver(); break;
         case 'write': {
           const age = clock() - data.issuedAt;
-          if (!Number.isFinite(age) || age < -1 || age > AP_CREDIT_MS)
-            throw Error('AP command expired before transmission.');
-          port.write(data.bytes);
+          if (!Number.isFinite(age) || age < -1 || age > AP_CREDIT_MS) {
+            port.timing.dropped_writes++;
+            scope.postMessage({type:'dropped',message:'AP command expired before transmission.',timing:port.timing});
+            break;
+          }
+          try { port.write(data.bytes); }
+          catch(error) {
+            if(error.code!=='AP_FRAME_DROPPED')throw error;
+            scope.postMessage({type:'dropped',message:error.message,timing:port.timing});
+            break;
+          }
           scope.postMessage({type:'sent'});
           break;
         }

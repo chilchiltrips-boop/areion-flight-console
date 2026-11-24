@@ -44,9 +44,11 @@ With firmware 3.3.0 or later, **Firmware → Kit Wi-Fi** lets you set the SSID a
 
 ## Calibrate the IMU
 
-Open [Configuration → IMU](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/imu) or **Setup wizard → Sensors**. With the propellers removed and the kit connected, confirm the arming lock and choose **Start calibration** once. Rest the kit in each of six positions in any order. The guide shows the measured orientation, how long it has been steady, and which positions are still needed. Leave it still until the position is marked captured. Movement restarts the current hold.
+Open **Configuration → IMU** directly, or select **Sensors** in the setup wizard. Connect the kit, remove the propellers and confirm on the page. Individual steps can be opened in any order. A green check identifies a verified step. The receiver, ESC and motor operations still check their hardware prerequisites.
 
-After all six pass, choose **Save calibration to kit**. The console reads back both the active and stored accelerometer offsets and confirms the sensor check with the controller. The gyroscope’s stationary rates are checked during capture. The kit measures its own gyro bias at power-up.
+**Accelerometer.** Choose **Six faces** for an initial setup or a sensor replacement. Hold each side still for three seconds in any order. Select a captured face to measure it again before saving. The A1 stores three additive offsets and checks the fit across all six positions. **Flat level → Check level** verifies the horizon with the existing offsets. **Capture flat level** offers a one-position correction when the frame rests on a known level surface. Saving reads back the active and stored offsets on the kit. A previously completed kit returns to its verified setup after a standalone ACC save.
+
+**Gyroscope.** On firmware 3.5.0 or later, **Calibrate gyro** measures stationary bias and verifies it with a second sample window on the FC. The bias applies for the current boot. A subsequent startup measures it again. **Check drift** measures the remaining angular rates over USB or AP, including on older firmware. Gyro calibration and the read-only checks leave the accelerometer offsets alone.
 
 ## Console pages
 

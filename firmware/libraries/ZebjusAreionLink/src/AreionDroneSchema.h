@@ -30,6 +30,7 @@ constexpr uint16_t PID_STATUS = 136;
 constexpr uint16_t PID_APPLY = 137;
 constexpr uint16_t AP_FIRMWARE_UPDATE = 140;
 constexpr uint16_t FIRMWARE_COMPONENTS = 141;
+constexpr uint16_t GYRO_CALIBRATION_STATUS = 142;
 }
 namespace DroneSchema {
 constexpr uint16_t IMU_SETTINGS = 2;

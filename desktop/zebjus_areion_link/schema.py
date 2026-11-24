@@ -1,5 +1,5 @@
 """Groups bound by supported Areion firmware. IDs and schemas must match the firmware."""
-SUPPORTED_FIRMWARE = frozenset(("3.1.0", "3.2.0", "3.3.0", "3.4.0"))
+SUPPORTED_FIRMWARE = frozenset(("3.1.0", "3.2.0", "3.3.0", "3.4.0", "3.5.0"))
 
 DRONE_GROUPS = {2: {'name': 'RATE_PID',
      'schema': 1,
@@ -359,7 +359,7 @@ DRONE_GROUPS[134]=_setup_group('SETUP_CONFIG',[
     _integer('DeadbandUs',0,50,5),*[_integer(f'MotorIdle{i}',1000,1500,1180) for i in range(1,5)]],True,True)
 DRONE_GROUPS[135]=_setup_group('SETUP_ACTION',[
     dict(name='Command',type='string',choices=['BEGIN','STOP','SENSOR_OK','RX_OK','FAILSAFE_OK',
-    'ESC_SCHEDULE','ESC_VERIFY','ESC_SKIP','MOTOR_START','MOTOR_SET','MOTOR_STOP','MOTOR_OK','FINALIZE','RESET_ALL','INPUT_SAVE']),
+    'ESC_SCHEDULE','ESC_VERIFY','ESC_SKIP','MOTOR_START','MOTOR_SET','MOTOR_STOP','MOTOR_OK','FINALIZE','RESET_ALL','INPUT_SAVE','GYRO_ZERO','GYRO_CANCEL']),
     *[_integer(f'Arg{i}',0,1500) for i in range(4)]])
 DRONE_GROUPS[135]['access']='action'
 
@@ -391,3 +391,8 @@ DRONE_GROUPS[137]={'name': 'PID_APPLY',
             {'index': 8, 'name': 'V6', 'type': 'float', 'min': 0.0, 'max': 500.0},
             {'index': 9, 'name': 'V7', 'type': 'float', 'min': 0.0, 'max': 500.0},
             {'index': 10, 'name': 'V8', 'type': 'float', 'min': 0.0, 'max': 500.0}]}
+
+DRONE_GROUPS[142] = _setup_group('GYRO_CALIBRATION', [
+    _integer('State', 0, 4), _integer('Samples', 0, 750), _integer('Target', 750, 750, 750),
+    _integer('Run'), dict(name='Result', type='string', max_length=96),
+    *[dict(name=name+'Bias', type='float') for name in ('Roll', 'Pitch', 'Yaw')]])

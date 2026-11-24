@@ -1,5 +1,6 @@
 // Areion FC A1, Arduino ESP32-C6, 4 MB default OTA partition scheme.
 export const board = 'Areion FC A1';
+export const reportsGyroCalibration=version=>/^3\.(?:[5-9]|[1-9]\d+)\.\d+$/.test(String(version));
 export const reportsComponents=version=>/^3\.(?:[4-9]|[1-9]\d+)\.\d+$/.test(String(version));
 export const sector = 0x1000;
 export const layout = {

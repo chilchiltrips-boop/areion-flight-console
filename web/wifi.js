@@ -5,6 +5,8 @@ const POLL = 0x50, FRAME = 0x46, REPLY = 0x41;
 const MAX_FRAME = 1552, POLL_MS = 20;
 export const MAX_ROUND_TRIP_MS = 200, AP_CREDIT_MS = 120;
 const SUBPROTOCOL = 'areion-link-v2';
+const GATEWAY_SILENCE_MS = 3000;
+const dropped = message => Object.assign(Error(message),{code:'AP_FRAME_DROPPED'});
 
 export function apUrl(endpoint = DEFAULT_AP_URL) {
   let text = String(endpoint).trim();
@@ -35,6 +37,7 @@ export class WifiPort {
     this.socket = null;
     this.readable = this.writable = null;
     this.readController = null;
+    this.timing = {late_polls:0, dropped_writes:0, last_rtt_ms:0, max_rtt_ms:0};
     this.pending = null;
     this.serial = 0;
     this.credit = null;
@@ -54,7 +57,7 @@ export class WifiPort {
     }, {highWaterMark: 16});
     this.writable = new WritableStream({write: bytes => this.write(bytes)});
     return new Promise((resolve, reject) => {
-      let ready = false;
+      let ready = false, lastReply = performance.now(), lastReport = -Infinity;
       const fail = message => {
         if (socket !== this.socket) return;
         this.shutdown(new Error(message));
@@ -64,11 +67,8 @@ export class WifiPort {
       const poll = () => {
         if (socket.readyState !== WebSocket.OPEN) return;
         const now = performance.now();
-        if (this.pending) {
-          if (now - this.pending.at > MAX_ROUND_TRIP_MS && ready) fail('AP telemetry link expired. Reconnect the kit.');
-          return;
-        }
-        if (socket.bufferedAmount > MAX_FRAME) return fail('AP Wi-Fi is congested. Reconnect the kit.');
+        if (ready && now-lastReply>GATEWAY_SILENCE_MS) return fail('No gateway reply for 3 s. Reconnect the kit.');
+        if (this.pending || socket.bufferedAmount>MAX_FRAME) return;
         this.serial = (this.serial + 1) >>> 0;
         this.pending = {id:this.serial, at:now};
         try { socket.send(header(POLL, this.serial)); } catch { fail('AP Wi-Fi disconnected.'); }
@@ -89,11 +89,23 @@ export class WifiPort {
         if (view.getUint8(0) !== REPLY || !pending || view.getUint32(1) !== pending.id)
           return fail('Unexpected browser AP response.');
         const now = performance.now();
-        if (now - pending.at > MAX_ROUND_TRIP_MS) return fail('AP telemetry arrived too late. Reconnect the kit.');
         const ticket = view.getUint32(5);
         if (!ticket) return fail('Invalid browser AP ticket.');
-        this.credit = {value:ticket, at:pending.at};
-        this.pending = null;
+        const rtt=now-pending.at;
+        lastReply=now;
+        this.pending=null;
+        this.timing.last_rtt_ms=Math.round(rtt);
+        this.timing.max_rtt_ms=Math.max(this.timing.max_rtt_ms,this.timing.last_rtt_ms);
+        if (rtt>MAX_ROUND_TRIP_MS) {
+          this.credit=null;
+          this.timing.late_polls++;
+          this.onTiming?.(this.timing);
+          // The reply and its embedded data are too old. Poll again without forwarding them.
+          poll();
+          return;
+        }
+        if(now-lastReport>=1000){lastReport=now;this.onTiming?.(this.timing);}
+        this.credit={value:ticket,at:pending.at};
         if (!ready) { ready = true; clearTimeout(this.openTimer); this.cancelOpen = null; resolve(); }
         if (data.byteLength > 9 && this.readController) {
           if (this.readController.desiredSize <= 0) return fail('AP telemetry could not be consumed in time.');
@@ -108,10 +120,13 @@ export class WifiPort {
 
   write(bytes) {
     const ws = this.socket, credit = this.credit;
-    if (!ws || ws.readyState !== WebSocket.OPEN || !credit || performance.now() - credit.at > AP_CREDIT_MS)
-      throw Error('AP link has no fresh response.');
-    if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MAX_FRAME || ws.bufferedAmount > MAX_FRAME)
-      throw Error('AP frame refused.');
+    if (!ws || ws.readyState !== WebSocket.OPEN) throw Error('AP socket is closed.');
+    if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > MAX_FRAME) throw Error('AP frame refused.');
+    const reserve=Math.max(12,Math.min(40,this.timing.last_rtt_ms/2));
+    if (!credit || performance.now()-credit.at+reserve>=AP_CREDIT_MS || ws.bufferedAmount>MAX_FRAME) {
+      this.timing.dropped_writes++;
+      throw dropped('AP frame refused until a fresh gateway reply.');
+    }
     const payload = header(FRAME, credit.value, 5 + bytes.length);
     payload.set(bytes, 5);
     ws.send(payload);

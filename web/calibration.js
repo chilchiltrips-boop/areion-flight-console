@@ -69,6 +69,9 @@ export class SensorCheck {
   constructor() { this.clear(); }
 
   clear() {
+    this.mode = 'six';
+    this.selectedFace = null;
+    this.levelError = null;
     this.phase = 'idle';
     this.active = null;
     this.detected = null;
@@ -82,6 +85,8 @@ export class SensorCheck {
     this.note = '';
   }
   get nextPose() {
+    if (this.mode === 'level') return this.faces.has(0) ? null : 0;
+    if (this.selectedFace !== null) return this.selectedFace;
     const index = poses.findIndex((_, i) => !this.faces.has(i));
     return index < 0 ? null : index;
   }
@@ -100,13 +105,36 @@ export class SensorCheck {
     return true;
   }
 
-  start(now, offsets) {
-    if (this.active || !Number.isFinite(now) || !Array.isArray(offsets) || offsets.length !== 3 ||
+  get resumable() {
+    return this.mode==='six' && this.phase==='stopped' && this.faces.size>0 && this.faces.size<poses.length;
+  }
+  resume(now) {
+    if (!this.resumable || !Number.isFinite(now)) return false;
+    this.selectedFace=null;
+    this.active={started:now,last:null};
+    this.detecting('Rest the kit on any unfinished face.');
+    return true;
+  }
+
+  repeatFace(face, now) {
+    if (this.mode !== 'six' || !this.baseline || !this.faces.has(face) || !Number.isFinite(now)) return false;
+    this.faces.delete(face);
+    this.gyroMeans.delete(face);
+    this.selectedFace = face;
+    this.offsets = null;
+    this.active = {started:now,last:null};
+    this.detecting('Hold '+poses[face][0]+' still to capture it again.');
+    return true;
+  }
+
+  start(now, offsets, mode = 'six') {
+    if (!['six','level'].includes(mode) || this.active || !Number.isFinite(now) || !Array.isArray(offsets) || offsets.length !== 3 ||
         !offsets.every(v => Number.isFinite(v) && Math.abs(v) <= .5)) return false;
     this.clear();
+    this.mode = mode;
     this.baseline = Object.freeze([...offsets]);
     this.active = {started: now, last: null};
-    this.detecting('Rest the kit on any unfinished face.');
+    this.detecting(mode==='level'?'Place the frame top up on a known level surface.':'Rest the kit on any unfinished face.');
     return true;
   }
   detecting(note, detected = null) {
@@ -146,6 +174,14 @@ export class SensorCheck {
       return;
     }
     const face = detectPose(acc, raw);
+    if (this.mode==='level' && (face!==0 || acc[2]<=0 || Math.hypot(acc[0],acc[1])>.12 || Math.abs(acc[2]-1)>.25)) {
+      this.detecting('Level the frame top up. Use six faces if the offsets are large.');
+      return;
+    }
+    if (this.selectedFace!==null && face!==this.selectedFace) {
+      this.detecting('Hold '+poses[this.selectedFace][0]+' still.');
+      return;
+    }
     if (face < 0) {
       this.detecting('Rest the kit squarely on one face.');
       return;
@@ -182,7 +218,16 @@ export class SensorCheck {
     }
     this.faces.set(face, Object.freeze(window.mean.slice(3)));
     this.gyroMeans.set(face, gyro);
-    if (this.faces.size === poses.length) this.finish();
+    this.selectedFace=null;
+    if (this.mode==='level') {
+      const mean=this.faces.get(0), target=[0,0,1];
+      const offsets=target.map((g,i)=>g-mean[i]);
+      if(maximumAbs(offsets)>.5) {this.end('error','Offset exceeds the kit range. Use six-face calibration.');return;}
+      this.offsets=Object.freeze(offsets);
+      this.gyro=Object.freeze(gyro);
+      this.levelError=Math.hypot(...target.map((g,i)=>mean[i]+this.baseline[i]-g));
+      this.end('complete','Level captured. Save only if the frame was physically level.');
+    } else if (this.faces.size === poses.length) this.finish();
     else this.detecting('Face captured. Move to an unfinished face.', face);
   }
   finish() {
@@ -224,5 +269,38 @@ export class SensorCheck {
     }
     this.offsets = Object.freeze(offsets);
     this.end('complete', 'Six faces captured and gyro checked. Ready to save.');
+  }
+}
+
+// A read-only drift check for any A1, including firmware with startup-only gyro zero.
+export class StationaryCheck {
+  constructor(kind='gyro'){this.kind=kind;this.clear();}
+  clear(){this.owner=null;this.phase='idle';this.note='';this.window=null;this.mean=null;this.tilt=null;this.gravity=null;}
+  start(ctx,now){
+    this.clear();this.owner={link:ctx.link,boot:ctx.link.fcSession,session:ctx.link.session};
+    this.phase='holding';this.window=new StationaryWindow(0,now);this.note='Keep the frame still.';
+  }
+  same(ctx){return this.owner && ctx?.state==='connected' && !ctx.replay && ctx.link===this.owner.link &&
+    ctx.link.fcSession===this.owner.boot && ctx.link.session===this.owner.session;}
+  stop(note){if(this.phase==='holding'){this.phase='stopped';this.note=note;this.window=null;}}
+  sample(packet){
+    if(this.phase!=='holding'||packet.group!==21||packet.event!==true)return;
+    const values=packet.values?.slice(0,6),w=this.window;
+    if(!values||values.length!==6||!values.every(Number.isFinite)||!Number.isFinite(packet.at)||
+       packet.at-(w.last??w.started)>MAX_GAP_MS){this.stop('IMU samples interrupted.');return;}
+    if(packet.at<w.started || (w.last!==null && packet.at<=w.last))return;
+    if(maximumAbs(values.slice(0,3))>5 || Math.abs(Math.hypot(...values.slice(3))-1)>.4){this.stop('Movement detected. Repeat on a firm surface.');return;}
+    w.add(values,packet.at);
+    if(w.varied){this.stop('The frame moved. Hold still and retry.');return;}
+    if(w.progress<1)return;
+    if(this.kind==='level'){
+      const [x,y,z]=w.mean.slice(3);
+      this.gravity=Math.hypot(x,y,z);this.tilt=Math.atan2(Math.hypot(x,y),z)*180/Math.PI;
+      this.phase=this.tilt<=3 && Math.abs(this.gravity-1)<=.08 && maximumAbs(w.mean.slice(0,3))<=1?'verified':'failed';
+      this.note=(this.phase==='verified'?'✓ Level verified':'Check frame level')+' · '+this.tilt.toFixed(1)+'° tilt · '+this.gravity.toFixed(3)+' g';
+      return;
+    }
+    this.mean=w.mean.slice(0,3);this.phase=maximumAbs(this.mean)<=GYRO_RESIDUAL_LIMIT?'verified':'failed';
+    this.note=this.phase==='verified'?'Stationary drift verified.':'High gyro drift. Recalibrate the gyro while stationary.';
   }
 }

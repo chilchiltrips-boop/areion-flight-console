@@ -1,7 +1,7 @@
 # Areion Flight Console 3.12.3
 
 Native Python / PySide6 desktop and Python SDK for **Areion FC A1**.
-The desktop supports FC firmware **3.1.0, 3.2.0, 3.3.0 and 3.4.0**. New installations use **Areion FC A1 3.4.0**, **ZebjusAreionLink 3.4.0** and **ZebjusPpm 1.0.1**.
+The desktop supports FC firmware **3.1.0, 3.2.0, 3.3.0, 3.4.0 and 3.5.0**. New installations use **Areion FC A1 3.5.0**, **ZebjusAreionLink 3.5.0** and **ZebjusPpm 1.0.1**.
 
 ## Welcome and saved input
 
@@ -17,7 +17,7 @@ Beside **Joystick TX** or **GPS map**, the default instrument view shows a horiz
 
 The Quad X follows roll, pitch and relative yaw. Its front marker helps you see the direction of rotation. The yaw tape uses the same gyro reference. **Zero yaw** sets the present direction to 0° in both views. At 80° of pitch or steeper the aircraft shows tilt only. Loss of IMU data clears the aircraft and its readings until a fresh sample arrives. Read the arm indication separately from the horizon. It comes from the controller’s status message. If status expires, the arm indication becomes unknown. If IMU readings expire, the horizon drops its live angles.
 
-**GPS map** opens an offline Natural Earth overview. Areion FC A1 3.4.0 has no GPS position message. The map starts with “Waiting for GPS” and displays a marker only after a valid position arrives. A running or pending sender keeps the joystick view selected.
+**GPS map** opens an offline Natural Earth overview. Areion FC A1 3.5.0 has no GPS position message. The map starts with “Waiting for GPS” and displays a marker only after a valid position arrives. A running or pending sender keeps the joystick view selected.
 
 For a future FC GPS decoder, hand validated position updates to the GUI thread via `gps_map.update_fix(latitude, longitude, valid=has_fix, stamp=receipt_time, session=identity)`. Coordinates are decimal degrees. Use the monotonic host receipt time and the active link identity used by `set_link`. The map centers a fresh fix, clears it on loss or reconnect, and expires it after five seconds. The bundled 1:110m atlas shows regional coastlines.
 

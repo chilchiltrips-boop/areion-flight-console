@@ -17,9 +17,9 @@ export class CalibrationSession {
     const sensor=this.sensor, quality=sensor.quality;
     const round=value=>Number(value.toFixed(4));
     return {
-      state:this.saved?'saved':sensor.phase, detail:sensor.note, fit_limit_g:FIT_ERROR_LIMIT,
+      state:this.saved?'saved':sensor.phase, method:sensor.mode, level_error_g:sensor.levelError, detail:sensor.note, fit_limit_g:FIT_ERROR_LIMIT,
       baseline_offsets_g:sensor.baseline?.map(round)??null,
-      proposed_offsets_g:quality?.biasCorrection.map(round)??null,
+      proposed_offsets_g:(quality?.biasCorrection??sensor.offsets)?.map(round)??null,
       gyro_residual_dps:sensor.gyro?.map(round)??null,
       gyro_peak_dps:quality?round(quality.gyroPeak):null,
       axis_fit_error_g:quality?.axisErrors.map(round)??null,
@@ -40,24 +40,25 @@ export class CalibrationSession {
     this.writing = false;
     this.writeAttempted = false;
   }
-  gate(ctx, controls, now = performance.now()) {
+  gate(ctx, controls, now = performance.now(), requireLock = true, needsOffsets = true) {
     if (!ctx || ctx.replay || ctx.state !== 'connected' || !ctx.link?.session || !ctx.link.fcSession)
       return 'Connect the kit over USB or AP Wi-Fi.';
     if (!controls.confirmed) return 'Confirm that all propellers are removed.';
     const status = ctx.model.get(120, now, 500), setup = ctx.model.get(130, now, 500);
     if (!status || !setup?.[15]) return 'Waiting for current controller status.';
     if (status[0] !== false) return 'Disarm the kit before calibration.';
-    if (!controls.entered || !setup[0] || setup[1] || setup[2] < 1)
+    if (requireLock && (!controls.entered || !setup[0] || setup[1] || setup[2] < 1))
       return 'Begin kit setup to lock arming.';
+    if (ctx.model.get(142,now,1500)?.[0]===1) return 'Wait for gyro calibration to finish.';
     if (setup[8] || [1, 2].includes(setup[3])) return 'Finish the ESC or motor test first.';
-    if (!status[7]) return 'Controller storage is unavailable.';
+    if (needsOffsets && !status[7]) return 'Controller storage is unavailable.';
     if (!status[2] || !status[5] || !ctx.model.get(21, now, 500)) return 'Waiting for live accelerometer and gyro readings.';
-    if (!ctx.model.get(6, now, Infinity)) return 'Waiting for controller offsets.';
+    if (needsOffsets && !ctx.model.get(6, now, Infinity)) return 'Waiting for controller offsets.';
     return '';
   }
-  start(ctx, baseline, kit, now) {
+  start(ctx, baseline, kit, now, mode='six') {
     this.reset();
-    if (!this.sensor.start(now,baseline)) throw Error('Invalid controller offsets.');
+    if (!this.sensor.start(now,baseline,mode)) throw Error('Invalid controller offsets.');
     this.owner = {link:ctx.link, host:ctx.link.session, boot:ctx.link.fcSession, kit};
   }
   sameOwner(ctx, now) {
@@ -70,6 +71,18 @@ export class CalibrationSession {
     const reason = this.gate(ctx,controls,now);
     if (reason || !this.sameOwner(ctx,now) || !this.sensor.retryFaces(now))
       throw Error(reason || 'Calibration session changed. Start a new calibration.');
+  }
+  resume(ctx,controls,now=performance.now()) {
+    this.sync(ctx,controls,now);
+    const reason=this.gate(ctx,controls,now);
+    if(reason || !this.sameOwner(ctx,now) || this.writeAttempted || !this.sensor.resume(now))
+      throw Error(reason || 'Start a new capture on this kit.');
+  }
+  repeatFace(face,ctx,controls,now=performance.now()) {
+    this.sync(ctx,controls,now);
+    if(this.saved || this.writing || this.writeAttempted || !this.sameOwner(ctx,now) ||
+       this.gate(ctx,controls,now) || !this.sensor.repeatFace(face,now))
+      throw Error('Start a new capture on this kit.');
   }
   stop(note) {
     if (this.sensor.active) this.sensor.stop(note);
@@ -121,7 +134,7 @@ export class CalibrationSession {
       this.writeAttempted && equal(ctx.model.get(6,now,Infinity),this.sensor.offsets));
   }
   async save(op, ctx, controls) {
-    if (!this.ready(ctx,controls)) throw Error('Complete the six-position calibration on this kit.');
+    if (!this.ready(ctx,controls)) throw Error(this.sensor.mode==='level'?'Complete the flat-level capture on this kit.':'Complete the six-position calibration on this kit.');
     const owner = this.owner, offsets = [...this.sensor.offsets], baseline = [...this.sensor.baseline];
     const retry = this.writeAttempted;
     this.writing = true;

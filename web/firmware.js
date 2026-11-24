@@ -4,7 +4,7 @@ import {flashAp} from './firmware-ota.js';
 import {flashPort} from './firmware-flash.js';
 import {mountWifi,wifiPanel} from './firmware-wifi.js';
 
-const supportedVersions=['3.1.0','3.2.0','3.3.0','3.4.0'];
+const supportedVersions=['3.1.0','3.2.0','3.3.0','3.4.0','3.5.0'];
 const labels=['Flight controller','Installed FC firmware','Available firmware','Installed Link library','Installed PPM library','Release libraries','Link protocol','Loop target','PWM outputs','PPM input'];
 export function mount(root) {
   root.classList.add('ac-surface','fw-page');
@@ -33,7 +33,7 @@ export function mount(root) {
     const connected=ctx?.state==='connected',usb=connected && ctx.path==='USB' && ctx.link?.source===2;
     const idle=ctx?.state==='offline' || ctx?.state==='error';
     const wireless=mode.value==='ap',updateKit=mode.value!=='install',setup=ctx?.group(130,1500);
-    const ready=connected&&ctx.group(120,1500)?.[0]===false&&setup&&!setup[8]&&![1,2].includes(setup[3]);
+    const ready=connected&&ctx.group(120,1500)?.[0]===false&&setup&&!setup[8]&&ctx.group(142)?.[0]!==1&&![1,2].includes(setup[3]);
     const ap=ctx?.path==='AP'&&ctx?.link?.source===1;
     safe.disabled=mode.disabled=flashing;
     flash.disabled=flashing || !safe.checked || !ctx?.withFirmwarePort || ctx.replay ||

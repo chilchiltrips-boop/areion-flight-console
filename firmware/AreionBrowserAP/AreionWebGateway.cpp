@@ -5,6 +5,7 @@
 #include <esp_random.h>
 #include <fcntl.h>
 #include <lwip/sockets.h>
+#include <lwip/tcp.h>
 #include <cerrno>
 #include <cstring>
 #include <new>
@@ -21,6 +22,7 @@ struct Peer {
   int socket = -1, udp = -1;
   uint32_t lastPoll = 0;
   gateway::Credits credits;
+  bool draining = false;
   uint8_t input[5 + gateway::MAX_FRAME];
   uint8_t output[9 + gateway::BURST * gateway::MAX_FRAME];
 };
@@ -71,6 +73,8 @@ esp_err_t attach(httpd_req_t* req) {
   Peer* p = new(std::nothrow) Peer;
   if (!p) return ESP_ERR_NO_MEM;
   p->socket = httpd_req_to_sockfd(req);
+  const int noDelay = 1;
+  setsockopt(p->socket, IPPROTO_TCP, TCP_NODELAY, &noDelay, sizeof(noDelay));
   p->udp = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   sockaddr_in destination{};
   destination.sin_family = AF_INET;
@@ -89,6 +93,10 @@ esp_err_t attach(httpd_req_t* req) {
 esp_err_t reply(httpd_req_t* req, Peer& p, uint32_t id, uint32_t now) {
   uint32_t ticket = esp_random();
   if (!ticket) ticket = 1;
+  if (uint32_t(now - p.lastPoll) > gateway::MAX_POLL_GAP_MS) {
+    p.credits = gateway::Credits{};
+    p.draining = true;
+  }
   p.credits.issue(ticket, now);
   p.lastPoll = now;
   p.output[0] = gateway::REPLY;
@@ -98,10 +106,10 @@ esp_err_t reply(httpd_req_t* req, Peer& p, uint32_t id, uint32_t now) {
   for (unsigned i = 0; i < gateway::BURST; ++i) {
     const int n = recv(p.udp, p.output + used, gateway::MAX_FRAME, 0);
     if (n < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+      if (errno == EAGAIN || errno == EWOULDBLOCK) { p.draining = false; break; }
       return ESP_FAIL;
     }
-    if (n && p.output[used] == '$' && p.output[used + n - 1] == '\n') used += n;
+    if (!p.draining && n && p.output[used] == '$' && p.output[used + n - 1] == '\n') used += n;
   }
   httpd_ws_frame_t response{};
   response.type = HTTPD_WS_TYPE_BINARY;
@@ -120,12 +128,15 @@ esp_err_t receive(httpd_req_t* req) {
   frame.payload = p->input;
   if (httpd_ws_recv_frame(req, &frame, sizeof(p->input)) != ESP_OK) return ESP_FAIL;
   const uint32_t now = millis(), value = gateway::read32(p->input + 1);
-  if (uint32_t(now - p->lastPoll) > gateway::MAX_POLL_GAP_MS) return ESP_FAIL;
   if (p->input[0] == gateway::POLL && frame.len == 5) return reply(req, *p, value, now);
-  if (p->input[0] != gateway::FRAME || frame.len <= 5 || !p->credits.valid(value, now)
+  if (p->input[0] != gateway::FRAME || frame.len <= 5
       || p->input[5] != '$' || p->input[frame.len - 1] != '\n') return ESP_FAIL;
+  // Late commands are discarded. A later poll can still obtain current telemetry.
+  if (p->draining || !p->credits.valid(value, now) || uint32_t(now - p->lastPoll) > gateway::MAX_POLL_GAP_MS) return ESP_OK;
   const size_t bytes = frame.len - 5;
-  return send(p->udp, p->input + 5, bytes, 0) == int(bytes) ? ESP_OK : ESP_FAIL;
+  const int sent=send(p->udp, p->input + 5, bytes, 0);
+  if (sent < 0 && (errno==EAGAIN || errno==EWOULDBLOCK || errno==ENOBUFS || errno==ENOMEM)) return ESP_OK;
+  return sent == int(bytes) ? ESP_OK : ESP_FAIL;
 }
 } // namespace
 

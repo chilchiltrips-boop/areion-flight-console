@@ -1,5 +1,6 @@
 import {DiagnosticHistory} from './diagnostic-history.js';
 import {ControllerDiagnostics} from './diagnostic-report.js';
+import {reportsGyroCalibration} from './firmware-release.js';
 import {UsbTelemetry} from './usb.js';
 import {DEFAULT_AP_URL} from './wifi.js';
 import {ApSessionPort} from './ap-session-port.js';
@@ -20,7 +21,21 @@ let live = new Instruments();
 let recording = [], packetCount = 0;
 let replay = null, state = 'offline', page = 'welcome', path = 'USB';
 let nextPaint = 0, lastShellUpdate = -Infinity;
-let connecting = false, stopPending = null;
+let connecting = false, stopPending = null, apRecoveryTimer=null, recoveryTimes=[];
+function cancelApRecovery(){clearTimeout(apRecoveryTimer);apRecoveryTimer=null;}
+function recoverAp(previous){
+  const eligible=()=>!document.hidden && !firmwareBusy && !stopPending && !replay && !link.current &&
+    !link.closing && state==='error' && header.mode==='ap' && path==='AP';
+  if(!eligible())return;
+  const now=performance.now();recoveryTimes=recoveryTimes.filter(at=>now-at<30000);
+  if(recoveryTimes.length>=2)return;
+  cancelApRecovery();
+  apRecoveryTimer=setTimeout(()=>{
+    apRecoveryTimer=null;if(!eligible())return;
+    recoveryTimes.push(performance.now());
+    void link.connect(new ApSessionPort(previous.url),{source:1,label:'AP Wi-Fi',expected:previous});
+  },1100);
+}
 const journal=new DiagnosticHistory();
 const controllerDiagnostics=new ControllerDiagnostics();
 let lastRun=null,lastEsc=null;
@@ -65,6 +80,7 @@ const link = new UsbTelemetry({
   route: () => [shell.page,shell.sub].filter(Boolean).join('/'),
   onTraffic(sample) { header.traffic(sample); },
   onPort(port) { header.confirmed(port); },
+  onApInterrupted:recoverAp,
   onResult(row,run){diagnosticScope(run)(row);},
   onStatus(update) {
     state = update.state;
@@ -139,6 +155,7 @@ window.addEventListener('pagehide',()=>{leaveControls();void journal.flush();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)void journal.flush();});
 document.addEventListener('visibilitychange', () => { if (document.hidden) leaveControls(); });
 async function disconnect() {
+  cancelApRecovery();
   if (flightExtra.running || stopPending) {
     try { await (stopPending || stopKit()); } catch (error) { log(error.message); }
   }
@@ -149,6 +166,7 @@ async function disconnect() {
 async function connect(mode, endpoint) {
   if (firmwareBusy) throw Error('Firmware update in progress.');
   if (openStates.has(state)) return;
+  cancelApRecovery();recoveryTimes=[];
   dropReplay();
   notice('');
   path = mode === 'ap' ? 'AP' : 'USB';
@@ -178,9 +196,10 @@ async function withFirmwarePort(mode,prepare,program) {
     if (existing) {
       const setup=await link.readGroup(130);
       const status=await link.readGroup(120);
+      const gyro=reportsGyroCalibration((await link.readGroup(125))[0])?await link.readGroup(142):null;
       if (page!=='firmware' || flightExtra.running || link.current!==existing || state!=='connected' ||
-          status[0]!==false || setup[8] || [1,2].includes(setup[3]))
-        throw Error('Disarm the kit and finish ESC or motor tests before flashing.');
+          status[0]!==false || gyro?.[0]===1 || setup[8] || [1,2].includes(setup[3]))
+        throw Error('Disarm the kit and finish calibration before flashing.');
       release.kitId=setup[15];
       if(wireless){
         const components=await link.readGroup(141);
@@ -198,12 +217,14 @@ async function withFirmwarePort(mode,prepare,program) {
     lastShellUpdate=-Infinity; render();
   }
 }
+window.addEventListener('pagehide',cancelApRecovery);
 const access = browserAccess(window);
 document.documentElement.dataset.embedded = String(access.embedded);
 const header = mountHeader(document.querySelector('.mast'),{
   connect,disconnect,stop:stopKit,notice,apSupported:true,apDefault:DEFAULT_AP_URL,access,retryOffline:() => retryOffline()
 });
 
+$('header-transport').addEventListener('change',cancelApRecovery);
 function render() {
   const clock = replay ? replay.position : performance.now();
   const model = replay ? replay.model : state === 'connected' ? live : empty;

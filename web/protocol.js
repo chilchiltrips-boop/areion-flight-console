@@ -129,6 +129,7 @@ const entries = new Map([
   [131, [1, [integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 8), bool, integer(0, 4294967295)]]], // RAW_PPM
   [132, [1, Array.from({length: 8}, () => [integer(900, 1500), integer(900, 2100), integer(1500, 2100), integer(0, 1)]).flat()]], // RX_CALIBRATION
   [134, [1, [integer(0, 3), integer(0, 2), integer(1, 8), integer(1, 8), integer(1, 8), integer(1, 8), integer(0, 50), integer(1000, 1500), integer(1000, 1500), integer(1000, 1500), integer(1000, 1500)]]], // SETUP_CONFIG
+  [142, [1, [integer(0,4), integer(0,750), integer(750,750), integer(0,4294967295), boundedString, number(), number(), number()]]],
   [141, [1, [boundedString, boundedString, boundedString, bool]]], // Board, Link library, PPM library, AP update capability
   [139, [1, [boundedString, boundedString, bool, bool]]], // USB AP status (on demand)
   [136, [1, [bool, integer(0, 4294967295), integer(0, 4294967295), boundedString]]], // PID_STATUS
@@ -149,6 +150,7 @@ export function validGroup(group, schema, values) {
 const persistent = new Set([2, 3, 4, 6, 7, 112, 132, 134]);
 const setupAcks = new Map([
   ['BEGIN','SETUP_LOCKED'], ['STOP','STOPPED'], ['MOTOR_STOP','STOPPED'],
+  ['GYRO_ZERO','GYRO_STARTED'], ['GYRO_CANCEL','GYRO_STOPPED'],
   ['SENSOR_OK','SETUP_UPDATED'], ['RX_OK','SETUP_UPDATED'], ['FAILSAFE_OK','SETUP_UPDATED'],
   ['ESC_SCHEDULE','SETUP_UPDATED'], ['ESC_SKIP','SETUP_UPDATED'], ['ESC_VERIFY','SETUP_UPDATED'],
   ['MOTOR_START','MOTOR_TEST_STARTED'], ['MOTOR_SET','MOTOR_TEST_UPDATED'], ['MOTOR_OK','MOTORS_VERIFIED'],

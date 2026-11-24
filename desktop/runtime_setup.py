@@ -133,4 +133,4 @@ def setup_report():
             f"SDK: {sdk.__version__} at {sdk.__file__}\nControl module: {control.__file__}\n"
             f"GUI: {gui.__version__} at {gui.__file__}\nSetup wizard module: {wizard.__file__}\n"
             f"PySide6: {qt.__version__}\npyserial: {serial.__version__}\n"
-            "Compatible FC firmware: 3.1.0, 3.2.0, 3.3.0 or 3.4.0. No hardware connection was opened.")
+            "Compatible FC firmware: 3.1.0, 3.2.0, 3.3.0, 3.4.0 or 3.5.0. No hardware connection was opened.")

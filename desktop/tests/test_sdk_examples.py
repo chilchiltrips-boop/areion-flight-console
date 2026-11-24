@@ -122,7 +122,7 @@ class ExternalProjectTests(unittest.TestCase):
         self.assertEqual(self.fc.values, [])
 
     def test_qualified_kits_use_saved_input_without_overwriting_it(self):
-        for version in ("3.1.0", "3.2.0", "3.3.0", "3.4.0"):
+        for version in ("3.1.0", "3.2.0", "3.3.0", "3.4.0", "3.5.0"):
             for source in (1, 2):
                 with self.subTest(version=version, source=source):
                     self.fc = ExampleFC(self.clock)

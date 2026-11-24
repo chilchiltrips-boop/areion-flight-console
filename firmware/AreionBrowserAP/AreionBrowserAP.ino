@@ -129,7 +129,7 @@ void arm_disarm(void)
   // Stick gestures and idle auto-disarm belong to the physical PPM receiver.
   // USB/AP use explicit ACTION ARM/DISARM; channels never request arming.
   // Input-loss and IMU-failure stops still apply independently in every mode.
-  if (AreionSetupLocked || !AreionWizardComplete) {Armed=false;HoldGesture=0;return;}
+  if (AreionGyro.busy() || AreionSetupLocked || !AreionWizardComplete) {Armed=false;HoldGesture=0;return;}
   if (!Armed && AreionPidPending) {HoldGesture=0;return;}
   if (AreionInputSource!=0) return;
   if (AreionBootSource!=0 || !AreionReceiverVerified) {
@@ -356,6 +356,19 @@ void loop() {
     LoopTimer=micros();return;
   }
   gyro_signals();
+  if (AreionGyro.busy()) {
+    const float raw[]={RateRoll,RatePitch,RateYaw},acc[]={AccX,AccY,AccZ};
+    const float before[]={RateCalibrationRoll,RateCalibrationPitch,RateCalibrationYaw};
+    if(AreionGyro.sample(millis(),receiver.engine().ownerSession(),ImuReadOK,raw,acc,before)) {
+      RateCalibrationRoll=AreionGyro.candidate[0];RateCalibrationPitch=AreionGyro.candidate[1];
+      RateCalibrationYaw=AreionGyro.candidate[2];AreionRebaseAttitude=true;reset_pid();
+    }
+    if(ImuReadOK) {RateRoll-=RateCalibrationRoll;RatePitch-=RateCalibrationPitch;RateYaw-=RateCalibrationYaw;}
+    if(!AreionGyro.busy()) areion_reset_input(true);
+    areion_setup_output_minimum();areion_serial_publish();
+    while ((uint32_t)(micros()-LoopTimer)<4000UL);
+    LoopTimer=micros();return;
+  }
   if (AreionMotorTestActive && !areion_imu_ready(millis())) areion_setup_cancel("MOTOR_TEST_IMU_LOST");
   if (areion_setup_tick(millis())) {
     if (ImuReadOK) {

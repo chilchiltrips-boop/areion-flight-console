@@ -46,7 +46,7 @@ static areion::ActionResult command(const std::vector<areion::Value>& data,uint3
   const auto& op=data[0].text;
   const auto session=receiver.engine().ownerSession();
   if(op=="BEGIN"){
-    if(busy()||Armed||AreionMotorTestActive||AreionPidPending||AreionEscBootMode||AreionEscState==1||AreionEscState==2)
+    if(busy()||AreionGyro.busy()||Armed||AreionMotorTestActive||AreionPidPending||AreionEscBootMode||AreionEscState==1||AreionEscState==2)
       return {false,"OTA_DISARM_AND_STOP_TESTS"};
     if(!session||digitalRead(bootPin)!=LOW)return {false,"OTA_HOLD_BOOT"};
     if(data.size()!=3||data[1].type!=ValueType::Integer||data[1].integer<32||data[1].integer>slotBytes

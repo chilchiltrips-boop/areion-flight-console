@@ -3,6 +3,9 @@ import {defaults} from './config-commands.js';
 import {ConfigPanel,editor,extras} from './config-panel.js';
 import {airframe} from './airframe.js';
 import {drawResponse} from './pid-trace.js';
+import {SetupProgress} from './setup-progress.js';
+import {StationaryCheck} from './calibration.js';
+import {reportsGyroCalibration} from './firmware-release.js';
 import {CalibrationSession} from './calibration-session.js';
 import {sensorStudio,updateSensorStudio} from './sensor-studio.js';
 import {tripodTelemetry} from './tripod/telemetry.js';
@@ -41,7 +44,8 @@ export function mount(root) {
     css.rel='stylesheet'; css.href=new URL('./configuration.css',import.meta.url);css.dataset.cfg='';document.head.append(css);
   }
   const calibration=new CalibrationSession();
-  const sensor=calibration.sensor;
+  const sensor=calibration.sensor, drift=new StationaryCheck(), levelCheck=new StationaryCheck('level'), progress=new SetupProgress();
+  let accMode='six';
   const sensorControls=()=>({confirmed,entered:hardware.entered});
   const sensorVisible=()=>!root.hidden && !document.hidden && (page==='imu' || (page==='wizard' && step===3));
   let page='wizard',step=0,confirmed=false,subPID=0,pickedProfile=0,last=null,linkId=null;
@@ -50,16 +54,21 @@ export function mount(root) {
   let restartView=false,escProfile=1,resumeStep=false;
   let routedKit=null, previousKit=null, sensorSignature='';
   const hardware=new ConfigPanel(root,{
-    state:()=>({page,step,confirmed,profile:pickedProfile,endpoints,rxRun}),
-    calibration,sensorControls,sensorVisible,
+    state:()=>({page,step,confirmed,profile:pickedProfile,endpoints,rxRun,accMode}),
+    calibration,sensorControls,sensorVisible,driftActive:()=>drift.phase==='holding'||levelCheck.phase==='holding',clearDrift:()=>drift.clear(),
+    beforeOperation:()=>progress.interrupt(),
+    didVerify:key=>{
+      if(['profile','source','arming','final','reset','imu'].includes(key))progress.invalidate();
+      if(key==='restart')progress.verifiedRestart(hardware.receipt?.setup[13]);
+    },
     receiverVerified:()=>{
       const origin=returnToEsc;returnToEsc=null;
       if(origin==='wizard'&&page==='wizard'&&step===4)moveStep(ESC_STEP);
       else if(origin==='esc'&&page==='input')last?.navigate('configuration/esc');
     },
     clearReceiver:()=>{endpoints=null;rxRun=false;},
-    clearCaptures:()=>{calibration.stop('Calibration stopped. Start again when ready.');reportSensor();rxRun=false;},
-    resetDraft:()=>{calibration.reset();endpoints=null;rxRun=false;profileEdited=false;pickedProfile=0;}
+    clearCaptures:()=>{progress.interrupt();levelCheck.stop('Check stopped.');drift.stop('Check stopped.');calibration.stop('Calibration stopped. Start again when ready.');reportSensor();rxRun=false;},
+    resetDraft:()=>{calibration.reset();drift.clear();levelCheck.clear();progress.reset();endpoints=null;rxRun=false;profileEdited=false;pickedProfile=0;}
   });
   let tripod=null,benchState=null;
   const suspend=(opts={})=>{tripod?.suspend();return hardware.suspend(opts);};
@@ -69,7 +78,7 @@ export function mount(root) {
   function directControls(){return '<div class="cfg-actions cfg-session">'+confirmation(confirmed)+extras.begin(page==='esc'?'Start / resume ESC setup':undefined)+extras.finalize()+'</div>';}
   function sensorEntry(){
     return '<div class="cfg-actions cfg-session">'+confirmation(confirmed)+
-      '<button type="button" class="cfg-btn" data-kit="begin" data-sensor-lock>Lock kit for calibration</button>'+
+      '<small>Start an ACC or gyro calibration below.</small>'+
       '<strong data-sensor-lock-state hidden>Arming locked</strong></div>';
   }
   function sensorFinish(){
@@ -104,10 +113,10 @@ export function mount(root) {
     return box(step===9?'Verify after restart':'Setup review',row('Kit identity','kit')+row('Firmware revision','revision')+row('Setup lock','locked')+row('Setup complete','complete')+row('Storage','storage'))+
       box('Controller checks',row('Sensors','sensorVerified')+row('Receiver','rxVerified')+row('ESC','escState')+row('Motors','mask')+(step===9?'<p>Save setup on the kit first. Reconnect the same kit after a restart to compare all eight saved groups.</p>'+extras.verify():extras.finalize()));
   }
-  function configurationResume(){return '<section class="cfg-card" data-resume><h3>Resume setup</h3>'+confirmation(confirmed)+extras.begin(step===ESC_STEP?'Resume ESC calibration':'Resume kit setup')+'</section>';}
+  function configurationResume(){if(step===3)return sensorEntry();return '<section class="cfg-card" data-resume><h3>Resume setup</h3>'+confirmation(confirmed)+extras.begin(step===ESC_STEP?'Resume ESC calibration':'Resume kit setup')+'</section>';}
   function wizard(){
     const work=[safetyPage,aircraft,wiring,sensorStudio,receiver,esc,()=>box('Motor outputs',motorRows()+row('Verified outputs','mask')+extras.motors())+box('Motor order',canvas('profile')+'<p>M1 front left · M2 front right · M3 rear right · M4 rear left.</p>'),arming,review,review];
-    return '<div class="cfg-wiz"><nav class="cfg-steps" aria-label="Setup steps">'+steps.map((s,i)=>'<button class="cfg-step" type="button" data-step="'+i+'" '+(i===step?'aria-current="step"':'')+(i&&!confirmed&&!(restartView&&i===9)?' disabled':'')+'><span>'+String(i+1).padStart(2,'0')+'</span>'+s+'</button>').join('')+'</nav><div><div class="cfg-wiz-head"><div><small>Setup wizard</small><h2>'+steps[step]+'</h2></div><small>Step '+(step+1)+' / '+steps.length+'</small></div><div class="cfg-grid">'+(step>0&&(!confirmed||!hardware.entered)&&!restartView?configurationResume():'')+work[step]()+'</div><div class="cfg-wiz-actions">'+act('back','Back')+(step<9?act('next','Next','cfg-primary'):'')+'</div></div></div>';
+    return '<div class="cfg-wiz"><nav class="cfg-steps" aria-label="Setup steps">'+steps.map((s,i)=>'<button class="cfg-step" type="button" data-step="'+i+'" '+(i===step?'aria-current="step"':'')+'><span>'+String(i+1).padStart(2,'0')+'</span><b>'+s+'</b><i data-step-mark aria-hidden="true"></i></button>').join('')+'</nav><div><div class="cfg-wiz-head"><div><small>Setup wizard</small><h2>'+steps[step]+'</h2></div><small>Step '+(step+1)+' / '+steps.length+'</small></div><div class="cfg-grid">'+(step>0&&(!confirmed||!hardware.entered)&&!restartView?configurationResume():'')+work[step]()+'</div><div class="cfg-wiz-actions">'+act('back','Back')+(step<9?act('next','Next','cfg-primary'):'')+'</div></div></div>';
   }
   let stickChoice=0,stickPulse=1500;
   function stickCurve(){
@@ -182,13 +191,20 @@ export function mount(root) {
   }
   function gate(ctx) {return !ctx.replay && ctx.state==='connected' && ctx.group(120,500)?.[0]===false;}
   function clearSessions() {
-    sensorSignature='';calibration.reset();endpoints=null;rxRun=false;statusRow=null;
+    sensorSignature='';calibration.reset();drift.clear();levelCheck.clear();progress.reset();endpoints=null;rxRun=false;statusRow=null;
     confirmed=false;linkId=null;returnToEsc=null;
   }
   function syncSafety(ctx){
     const id=ctx.group(130)?.[15];
     if(id&&linkId&&linkId!==id){clearSessions();hardware.reset();routedKit=null;}
     if(id)linkId=id;
+    for(const check of [drift,levelCheck]){
+      if(check.owner && !check.same(ctx))check.clear();
+      if(check.phase==='holding'){
+        const reason=calibration.gate(ctx,sensorControls(),performance.now(),false);
+        if(reason)check.stop(reason);
+      }
+    }
     calibration.sync(ctx,sensorControls());
     if(rxRun&&(!gate(ctx)||!hardware.lock)){rxRun=false;endpoints=null;}
   }
@@ -210,6 +226,14 @@ export function mount(root) {
     if(packet.group===120)statusRow=packet;
     if(tripod&&last){
       if(tripod.mirroring&&[7,22,112,120,122,131,132,134].includes(packet.group))tripod.receive(tripodTelemetry(last,packet.at));
+    }
+    for(const check of [drift,levelCheck]){
+      if(check.phase!=='holding'||!last||!sensorVisible())continue;
+      if(check.same(last) && !calibration.gate(last,sensorControls(),packet.at,false,false)){
+        check.sample(packet);
+        if(check.phase!=='holding')last.diagnosticScope?.()({kind:'calibration',name:check.kind==='level'?'Flat-level check':'Gyro drift check',
+          status:check.phase==='verified'?'ok':'warning',detail:check.note,values:check.mean??[check.tilt,check.gravity]});
+      }else check.stop('Sensor check interrupted.');
     }
     if(sensor.active && last && sensorVisible()){
       calibration.onPacket(packet,last,sensorControls());reportSensor();
@@ -240,7 +264,6 @@ export function mount(root) {
       if(resumeEsc(fc)){resumeStep=true;step=ESC_STEP;draw();return;}
       if(previousKit && previousKit!==routedKit){resumeStep=false;step=0;draw();return;}
     }
-    if(!confirmed&&step>0&&page==='wizard'&&!restartView&&!resumeStep){step=0;draw();return;}
     if(!profileEdited && cfg) pickedProfile=cfg[0];
     const values={
       boardGain:ctx.state==='connected'?'Controller values':'Firmware defaults · awaiting FC read',
@@ -292,6 +315,17 @@ export function mount(root) {
     const chart=root.querySelector('[data-response]');if(chart)drawResponse(chart,ctx,responseAxis,!!responseAngle);
     const sensorPending=step===3 && (calibration.pending || !fc?.[5]);
     hardware.refresh(ctx);
+    if(page==='wizard'){
+      progress.observe(ctx,fc,hardware.busy||hardware.motor||!!sensor.active);
+      const states=progress.steps(ctx,fc,confirmed,hardware.lock,calibration.pending);
+      for(const button of root.querySelectorAll('[data-step]')){
+        const index=Number(button.dataset.step),state=states[index],mark=button.querySelector('[data-step-mark]');
+        if(button.dataset.result===state)continue;
+        button.dataset.result=state;button.dataset.done=String(!!state && state!=='Not used');
+        mark.textContent=state==='Not used'?'—':state?'✓':'';
+        button.title=state||steps[index];button.setAttribute('aria-label',steps[index]+(state?' · '+state:''));
+      }
+    }
     const resume=root.querySelector('[data-resume]');if(resume)resume.hidden=hardware.lock;
     const escPending=step===ESC_STEP && !ctx.replay && (ctx.state==='connected'||resumeStep) && ![4,5].includes(fc?.[3]);
     const receiverPending=step===4&&hardware.live&&cfg?.[1]===0&&!fc?.[6];
@@ -307,10 +341,11 @@ export function mount(root) {
       const lockState=root.querySelector('[data-sensor-lock-state]');
       if(lockState)lockState.hidden=!hardware.lock;
       const finish=root.querySelector('[data-sensor-finish]');
-      if(finish)finish.hidden=!(hardware.lock&&fc?.[5]&&!calibration.pending);
-      const disabledReason=calibration.gate(ctx,sensorControls());
+      if(finish)finish.hidden=!(hardware.lock&&fc?.[5]&&!calibration.pending&&fc?.[4]===15&&[4,5].includes(fc?.[3])&&(cfg?.[1]!==0||fc?.[6]));
+      const disabledReason=calibration.gate(ctx,sensorControls(),performance.now(),false);
       updateSensorStudio(root,sensor,{
-        ctx,canStart:!disabledReason&&!hardware.busy&&!sensor.active,disabledReason,
+        ctx,mode:accMode,gyroState:ctx.group(142),supportsGyro:reportsGyroCalibration(ctx.group(125)?.[0]),drift,levelCheck,
+        canDrift:!calibration.gate(ctx,sensorControls(),performance.now(),false,false)&&!hardware.busy,canStart:hardware.allowed('start-sensor'),disabledReason,
         saved:calibration.saved && fc?.[5]===true,working:hardware.busy,profile:pickedProfile===1?'areion250':'areion450'
       });
     }
@@ -331,7 +366,7 @@ export function mount(root) {
     const el=event.target;
     if(el.hasAttribute('data-props')){
       confirmed=el.checked;
-      if(!confirmed){hardware.suspend();rxRun=false;if(page==='wizard'&&step!==ESC_STEP)step=0;}
+      if(!confirmed){hardware.suspend();rxRun=false;}
       draw();
     } else if(el.dataset.select==='ESC profile'){escProfile=Number(el.value);hardware.confirm.delete('compatible');hardware.confirm.delete('tones');hardware.confirm.delete('skip');hardware.refresh(last);}
     else if(el.dataset.select==='Aircraft preview'){pickedProfile=Number(el.value);profileEdited=true;if(last)update(last);}
@@ -347,7 +382,15 @@ export function mount(root) {
     if(el.dataset.nav){last?.navigate('configuration/'+el.dataset.nav);return;}
     if(el.hasAttribute('data-pid')){last?.navigate('configuration/'+pidTabs[Number(el.dataset.pid)][0]);return;}
     if(el.closest('[data-tripod]'))return;
-    if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){moveStep(Number(el.dataset.step));}return;}
+    if(el.hasAttribute('data-step')){moveStep(Number(el.dataset.step));return;}
+    if(el.dataset.accMode){
+      if(el.dataset.accMode!==accMode){
+        if(sensor.active || hardware.busy || calibration.pending || levelCheck.phase==='holding')return;
+        calibration.reset();accMode=el.dataset.accMode;
+        if(last)update(last);
+      }
+      return;
+    }
     switch(el.dataset.act){
 
       case 'esc-receiver':{
@@ -361,7 +404,14 @@ export function mount(root) {
       case 'next':case 'back':{const delta=el.dataset.act==='next'?1:-1;let next=Math.max(0,Math.min(9,step+delta));if(next===4&&last?.group(134)?.[1]>0)next+=delta;moveStep(next);break;}
       case 'rotate':sceneOrbit=(sceneOrbit+45)%360;break;
       case 'start-sensor':void hardware.run('start-sensor');break;
-      case 'cancel-sensor':calibration.stop('Calibration cancelled. Start again when ready.');break;
+      case 'cancel-sensor':
+        if(sensor.active)calibration.stop('Capture stopped.');
+        else calibration.reset();
+        break;
+      case 'level-check':case 'gyro-drift':
+        if(last && sensorVisible()&&!calibration.gate(last,sensorControls(),performance.now(),false,false))
+          (el.dataset.act==='level-check'?levelCheck:drift).start(last,performance.now());
+        break;
       case 'rx-clear':endpoints=null;rxRun=false;break;
       case 'rx-capture':if(!rxRun){endpoints={min:Array(8).fill(Infinity),max:Array(8).fill(-Infinity),samples:0,count:0};}rxRun=!rxRun;break;
     }

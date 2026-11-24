@@ -68,7 +68,7 @@ export class ApSessionPort {
     };
     worker.onfallback=armDeadline;
     armDeadline();
-    this.error = null;
+    this.error = null;this.timing=null;
     this.readable = new ReadableStream({
       start: controller => { this.controller = controller; },
       pull: () => {
@@ -78,14 +78,7 @@ export class ApSessionPort {
       },
       cancel: () => { this.controller = null; this.pull?.resolve(); this.pull = null; }
     }, {highWaterMark:0});
-    this.writable = new WritableStream({
-      write: frame => {
-        if (this.error || !this.worker) throw this.error || Error('AP connection closed.');
-        this.writeAck = pending();
-        worker.postMessage({type:'write', bytes:frame.bytes, issuedAt:frame.issuedAt});
-        return this.writeAck.promise;
-      }
-    });
+    this.writable=new WritableStream({write:frame=>this.writeFresh(frame)});
     worker.onerror = event => {
       event.preventDefault?.();
       this.finish(Error('AP telemetry stopped'+(event.message?' · '+event.message:'. Reconnect to the kit Wi-Fi.')));
@@ -93,7 +86,12 @@ export class ApSessionPort {
     worker.onmessageerror = () => this.finish(Error('AP worker message could not be read.'));
     worker.onmessage = ({data}) => {
       if (worker !== this.worker) return;
+      if(data.timing)this.timing=data.timing;
       switch (data.type) {
+        case 'timing': break;
+        case 'dropped':
+          this.writeAck?.reject(Object.assign(Error(data.message),{code:'AP_FRAME_DROPPED'}));
+          this.writeAck=null;break;
         case 'ready': clearTimeout(this.startTimer); opened.resolve(); this.opened = null; break;
         case 'sent': this.writeAck?.resolve(); this.writeAck = null; break;
         case 'error': this.finish(Error(data.message)); break;
@@ -116,6 +114,15 @@ export class ApSessionPort {
     };
     worker.postMessage({type:'open', url:this.url});
     return opened.promise;
+  }
+
+  // A WritableStream latches a rejected write. Release one expired command without poisoning later requests.
+  writeFresh(frame) {
+    if (this.error || !this.worker) return Promise.reject(this.error || Error('AP connection closed.'));
+    if (this.writeAck) return Promise.reject(Object.assign(Error('AP write already pending.'),{code:'AP_FRAME_DROPPED'}));
+    this.writeAck=pending();
+    this.worker.postMessage({type:'write',bytes:frame.bytes,issuedAt:frame.issuedAt});
+    return this.writeAck.promise;
   }
 
   cancelOpen() { this.finish(Error('AP connection cancelled.')); }

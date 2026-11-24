@@ -93,14 +93,14 @@
 .imu-face-mark {
   width:.7rem;height:.7rem;flex:none;border:1.5px solid #7c96a4;border-radius:100%;position:relative;
 }
-.imu-faces strong,.imu-faces li div>span {display:block;line-height:1.2}
+.imu-faces strong,.imu-faces li .imu-face-button>span {display:block;line-height:1.2}
 .imu-faces strong {font-size:.84rem;font-weight:600}
-.imu-faces li div>span {color:var(--imu-soft);margin:.15rem 0 0;font-size:.68rem}
+.imu-faces li .imu-face-button>span {color:var(--imu-soft);margin:.15rem 0 0;font-size:.68rem}
 .imu-faces li[data-state=next] {border-color:#8c7959}
 .imu-faces li[data-state=next] .imu-face-mark {border-color:var(--imu-amber);background:#514734}
-.imu-faces li[data-state=next] div>span {color:var(--imu-amber)}
+.imu-faces li[data-state=next] .imu-face-button>span {color:var(--imu-amber)}
 .imu-faces li[data-state=retry] {border-color:var(--imu-amber);background:#433829}
-.imu-faces li[data-state=retry] div>span,.imu-studio[data-phase=review] .imu-instruction>strong {color:var(--imu-amber)}
+.imu-faces li[data-state=retry] .imu-face-button>span,.imu-studio[data-phase=review] .imu-instruction>strong {color:var(--imu-amber)}
 .imu-faces li[data-state=retry] .imu-face-mark {border-color:var(--imu-amber);background:var(--imu-amber)}
 .imu-faces li[data-state=holding] {border-color:#75cdbb;background:#1c4244}
 .imu-faces li[data-state=holding] .imu-face-mark {border-color:var(--imu-green);background:var(--imu-green);box-shadow:0 0 0 3px #89e2cc1f}
@@ -152,3 +152,25 @@
   .imu-axis {display:none}
 }
 .imu-studio .imu-gyro-note {color:var(--imu-soft);margin:.55rem 0 0;font-size:.78rem;line-height:1.45}
+
+.imu-methods {display:inline-flex;gap:4px;border:1px solid #476270;border-radius:7px;padding:3px;margin-bottom:.8rem}
+.imu-methods button,.imu-face-button {font:inherit;color:inherit;cursor:pointer}
+.imu-methods button {border:0;border-radius:4px;padding:.4rem .8rem;background:transparent;font-size:.87rem}
+.imu-methods button[aria-pressed=true] {background:#305653;color:#baf6dc}
+.imu-methods button:focus-visible,.imu-face-button:focus-visible {outline:2px solid #86ddc5;outline-offset:2px}
+.imu-faces li[hidden],.imu-studio [hidden] {display:none}
+.imu-face-button {display:grid;gap:.13rem;text-align:left;background:transparent;border:0;padding:.15rem .2rem}
+.imu-face-button:disabled {opacity:1;cursor:default}
+.imu-face-button:not(:disabled):hover strong {text-decoration:underline}
+.imu-gyro {margin-top:.85rem}
+.imu-gyro-grid {display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.imu-gyro p {color:#c1d3da;margin:0 0 .6rem}
+.imu-gyro-result {align-self:center;display:grid;gap:.4rem;font-variant-numeric:tabular-nums}
+.imu-gyro-result>span {font-size:.85rem;color:#b7cdd1}
+.imu-badge {font-size:.84rem;color:#b7cdd1}
+.imu-studio [data-ok=true],.imu-studio[data-acc-verified=true] [data-sensor-field=result] {color:#98edb2}
+.imu-studio [data-bad=true] {color:#ffae9d}
+.imu-studio .imu-gyro progress {width:100%;accent-color:#81dfb1}
+@container(max-width:620px){.imu-gyro-grid{grid-template-columns:1fr}}
+.imu-level-check {display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;margin:.75rem 0}
+.imu-level-check span {color:#c1d3da;font-size:.875rem}

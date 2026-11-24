@@ -21,7 +21,10 @@ static areion::Group AreionRatePID(2,1,true,true), AreionAnglePID(3,1,true,true)
 static areion::Group AreionAccelOffsets(6,2,true,true);
 static areion::Group AreionArmingSettings(4,2,true,true), AreionFlightSettings(7,3,true,true);
 static areion::Group AreionTimeoutSettings(112,1,true,true), AreionOutputs(23,2), AreionDevice(125,1);
-static std::string AreionFirmwareVersion="3.4.0";
+#include "AreionGyroZero.h"
+static AreionGyroZero AreionGyro;
+static areion::Group AreionGyroStatus(142,1);
+static std::string AreionFirmwareVersion="3.5.0";
 static areion::Group AreionComponents(141,1);
 static std::string AreionBoardName="Areion FC A1",AreionLinkVersion=ZEBJUS_AREION_LINK_VERSION,AreionPpmVersion=ZEBJUS_PPM_VERSION;
 static bool AreionOtaSupported=true;
@@ -133,6 +136,7 @@ static areion::ActionResult areion_arm_action(const std::vector<areion::Value>& 
     return {true,"DISARMED"};
   }
   if(areion_ota::busy())return {false,"FIRMWARE_UPDATE_ACTIVE"};
+  if(AreionGyro.busy())return {false,"GYRO_CALIBRATION_ACTIVE"};
   if(data[0].text!="ARM") return {false,"ACTION_UNKNOWN"};
   if(AreionPidPending) return {false,"PID_SAVE_PENDING"};
   if(AreionSetupLocked || !AreionWizardComplete) return {false,"SETUP_LOCKED"};
@@ -236,6 +240,8 @@ static bool areion_link_begin(bool transportReady) {
     .add(AreionPPMFresh).add(AreionAPFresh).add(AreionInputReady)
     .add(AreionInputChannelCount).add(AreionInputAgeMs).add(AreionOwnerSession)
     .add(AreionUSBFresh);
+  AreionGyroStatus.add(AreionGyro.state).add(AreionGyro.samples).add(AreionGyro.target).add(AreionGyro.run)
+    .add(AreionGyro.detail,96).add(RateCalibrationRoll).add(RateCalibrationPitch).add(RateCalibrationYaw);
   AreionComponents.add(AreionBoardName,32).add(AreionLinkVersion,32).add(AreionPpmVersion,32).add(AreionOtaSupported);
   AreionLinkReady=transportReady && receiver.addGroup(AreionRatePID)
     && receiver.addGroup(AreionAnglePID) && receiver.addGroup(AreionIMU)
@@ -245,7 +251,7 @@ static bool areion_link_begin(bool transportReady) {
     && receiver.addGroup(AreionArmingSettings) && receiver.addGroup(AreionFlightSettings)
     && receiver.addGroup(AreionTimeoutSettings) && receiver.addGroup(AreionOutputs)
     && receiver.addGroup(AreionDevice) && receiver.engine().addAction(123,1,areion_arm_action)
-    && areion_wifi_bind() && areion_setup_bind() && receiver.addGroup(AreionComponents)
+    && areion_wifi_bind() && areion_setup_bind() && receiver.addGroup(AreionComponents) && receiver.addGroup(AreionGyroStatus)
     && receiver.engine().addAction(140,1,areion_ota::command);
   receiver.engine().onWriteAllowed([] { return !areion_ota::busy() && !Armed && !AreionPidPending && !AreionMotorTestActive && AreionEscState!=1 && AreionEscState!=2 && !AreionEscBootMode && AreionSetupStoreHealthy; });
   // ESC timing is autonomous and all flight ARM paths remain locked. Allow
@@ -362,6 +368,11 @@ static void areion_serial_publish() {
   static uint8_t section=0;
   if(!AreionLinkReady) return;
   const uint32_t now=millis();
+  static int previousGyro=-1;
+  static uint32_t gyroAt=0;
+  if(previousGyro!=AreionGyro.state || (AreionGyro.busy() && uint32_t(now-gyroAt)>=200)) {
+    receiver.sendGroup(142);previousGyro=AreionGyro.state;gyroAt=now;
+  }
   if(uint32_t(now-lastSetupPublish)>=100) {receiver.sendGroup(130);receiver.sendGroup(136);lastSetupPublish=now;}
   if(AreionSetupLocked && uint32_t(now-lastRawPublish)>=50) {receiver.sendGroup(131);lastRawPublish=now;}
   if(uint32_t(now-lastPublish)<25) return;

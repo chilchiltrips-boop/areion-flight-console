@@ -69,7 +69,9 @@ test('unexpected poll replies and stale handshakes cannot admit a kit session',a
   await assert.rejects(opened,/Unexpected/);assert.equal(ws.readyState,3);
   const retry=new WifiPort();const connecting=retry.open();Socket.instance.up();
   retry.pending.at-=300;Socket.instance.reply(retry.pending.id,10);
-  await assert.rejects(connecting,/too late/);
+  assert.equal(retry.credit,null);assert.equal(retry.timing.late_polls,1);
+  assert.throws(()=>retry.write(Uint8Array.from([36,10])),{code:'AP_FRAME_DROPPED'});
+  Socket.instance.reply(retry.pending.id,11);await connecting;await retry.close();
 });
 
 test('Find kit polls one Areion gateway, falls back to the factory address, and releases the socket without a Link frame',async t=>{
@@ -152,4 +154,18 @@ test('explicit Connect sends native Link frames and receives telemetry through t
   await link.disconnect();
   assert.equal(requests[0].type,'HELLO');assert.equal(requests.at(-1).type,'RELEASE');
   assert(!requests.some(request=>['ACTION','CONTROL'].includes(request.type)));
+});
+
+test('late poll data and stale writes are dropped while later fresh traffic uses the same WebSocket',async t=>{
+  const original=globalThis.WebSocket;globalThis.WebSocket=Socket;t.after(()=>{globalThis.WebSocket=original;});
+  const port=new WifiPort();const opening=port.open(),ws=Socket.instance;t.after(()=>port.close());
+  ws.up();ws.reply(1,42);await opening;
+  const reader=port.readable.getReader();
+  while(!port.pending)await new Promise(resolve=>setTimeout(resolve,5));
+  port.pending.at-=310;ws.reply(port.pending.id,43,[1,2,3]);
+  assert.equal(ws.readyState,1);assert.equal(port.credit,null);
+  assert.throws(()=>port.write(Uint8Array.from([36,10])),{code:'AP_FRAME_DROPPED'});
+  ws.reply(port.pending.id,44,[4,5,6]);assert.deepEqual([...((await reader.read()).value)],[4,5,6]);
+  port.write(Uint8Array.from([36,10]));assert.equal(ws.frames.at(-1)[4],44);
+  assert.equal(port.timing.dropped_writes,1);assert.equal(port.timing.late_polls,1);reader.releaseLock();
 });

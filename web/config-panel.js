@@ -49,7 +49,7 @@ const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 export class ConfigPanel {
   constructor(root,local){
     this.root=root;this.local=local;this.draft=new Map();this.base=new Map();this.confirm=new Set();this.knownKit=null;
-    this.pendingMotorStop=null;this.status='';this.epoch=0;this.busy=false;this.entered=false;this.mask=1;this.pulse=1000;this.minima=new Map();
+    this.restoreAfterAcc=null;this.pendingMotorStop=null;this.status='';this.epoch=0;this.busy=false;this.entered=false;this.mask=1;this.pulse=1000;this.minima=new Map();
     root.addEventListener('input',e=>this.edit(e.target));
     root.addEventListener('change',e=>this.edit(e.target));
     root.addEventListener('click',e=>{
@@ -91,7 +91,7 @@ export class ConfigPanel {
     return stopped;
   }
   pageChange(){this.suspend();this.info('');}
-  reset(){this.suspend();this.entered=false;this.ctx=null;this.draft.clear();this.base.clear();this.minima.clear();this.knownKit=null;}
+  reset(){this.suspend();this.entered=false;this.ctx=null;this.restoreAfterAcc=null;this.draft.clear();this.base.clear();this.minima.clear();this.knownKit=null;}
   stopMotor(skipCommand=false){
     const motor=this.motor;this.motor=null;this.pulse=1000;
     if(motor){clearInterval(motor.timer);
@@ -179,11 +179,20 @@ export class ConfigPanel {
     if(key==='source'&&a.page!=='wizard')return this.live&&this.armed===false&&cfg;
     if(key==='restart')return this.live&&this.armed===false;
     if(!this.safe)return false;
+    const gyro=this.ctx.group(142);
+    if(key==='cancel-gyro')return gyro?.[0]===1;
+    if(gyro?.[0]===1)return false;
+    if(key==='start-gyro')return !!gyro && !this.local.calibration.sensor.active && !this.local.driftActive?.() && this.local.sensorVisible() &&
+      !this.local.calibration.gate(this.ctx,this.local.sensorControls(),performance.now(),false,false);
+    if(key==='start-sensor')return !this.local.driftActive?.() && this.local.sensorVisible() && !this.local.calibration.sensor.active &&
+      !this.local.calibration.gate(this.ctx,this.local.sensorControls(),performance.now(),a.page!=='imu'&&a.step!==3);
+    if(key.startsWith('face-'))return this.lock && !this.local.calibration.saved && !this.local.calibration.writeAttempted &&
+      this.local.calibration.sensor.faces.has(Number(key.slice(5))) && !this.local.calibration.gate(this.ctx,this.local.sensorControls());
     if(key==='begin')return !this.lock;
     if(!this.lock)return false;
     switch(key){
       case 'reset':return check('reset');
-      case 'start-sensor':return this.local.sensorVisible() && !this.local.calibration.sensor.active &&
+      case 'resume-sensor':return this.local.sensorVisible() && this.local.calibration.sensor.resumable &&
         !this.local.calibration.gate(this.ctx,this.local.sensorControls());
       case 'retry-sensor':return this.local.sensorVisible() && this.local.calibration.sensor.needsRetry &&
         !this.local.calibration.gate(this.ctx,this.local.sensorControls());
@@ -221,6 +230,7 @@ export class ConfigPanel {
   }
   async run(key){
     if(!this.allowed(key))return;
+    this.local.beforeOperation?.();
     const record=this.ctx?.diagnosticScope?.();
     const trace=(status,detail,values)=>record?.({kind:'operation',name:key,status,detail,values});
     trace('started');
@@ -242,9 +252,14 @@ export class ConfigPanel {
       const result=await this.perform(key,op);
       guard();const detail=result||'Saved and verified on the kit.';this.info(detail);
       trace('ok',detail,key==='final'||key==='restart'?this.receipt:undefined);
+      this.local.didVerify?.(key);
       if(key==='receiver')this.local.receiverVerified?.();
     }catch(error){trace(token===this.epoch?'error':'interrupted',error.message);if(token===this.epoch)this.info(error.message,true);}
     finally{if(token===this.epoch){this.busy=false;if(this.ctx)this.refresh(this.ctx);}}
+  }
+  rememberReceipt(receipt){
+    this.receipt=receipt;
+    try{localStorage.setItem(receiptKey(receipt.kit),JSON.stringify(receipt));}catch{/* tab only */}
   }
   async perform(key,op){
     const a=this.local.state();
@@ -257,9 +272,13 @@ export class ConfigPanel {
       }
       return 'Active controller gains loaded.';
     }
+    if(key.startsWith('face-')){
+      this.local.calibration.repeatFace(Number(key.slice(5)),this.ctx,this.local.sensorControls());
+      return 'Recapturing the selected face.';
+    }
     switch(key){
       case 'begin':await op.begin();this.entered=true;return 'Setup lock verified. Flight arming is blocked.';
-      case 'reset':await op.reset();markEsc(this.knownKit,false);this.local.resetDraft();this.draft.clear();this.base.clear();this.minima.clear();this.confirm.clear();return 'Factory defaults saved and verified. Setup remains locked.';
+      case 'reset':await op.reset();this.restoreAfterAcc=null;this.receipt=null;try{localStorage.removeItem(receiptKey(this.knownKit));}catch{/* tab only */}markEsc(this.knownKit,false);this.local.resetDraft();this.draft.clear();this.base.clear();this.minima.clear();this.confirm.clear();return 'Factory defaults saved and verified. Setup remains locked.';
       case 'source':{
         const selected=this.snapshot(134,await op.read(134),[1])[1];
         await saveFlightInput(op.link,selected,{wizard:a.page==='wizard',guard:()=>op.check()});
@@ -267,29 +286,56 @@ export class ConfigPanel {
       }
       case 'profile':{
         const cfg=await op.read(134);
+        await op.store(134,[a.profile,...cfg.slice(1)],cfg);
         if(cfg[0]!==a.profile){
-          await op.store(134,[a.profile,...cfg.slice(1)],cfg);
           await op.store(2,defaults[2]);await op.store(3,defaults[3]);
         }
         return 'Aircraft profile verified.';
       }
+      case 'start-gyro':
+      case 'cancel-gyro':{
+        this.local.clearDrift?.();
+        await op.disarmed();
+        const start=key==='start-gyro',previous=await op.read(142);
+        const ack=await op.call('action',135,[start?'GYRO_ZERO':'GYRO_CANCEL',start?1:0,0,0,0]);
+        if(ack[0] !== (start?'GYRO_STARTED':'GYRO_STOPPED'))throw Error('Gyro command unconfirmed.');
+        const after=await op.read(142);
+        if(start && (after[3]!==((previous[3]+1)>>>0) || ![1,2].includes(after[0])))throw Error(after[4]||'Gyro capture unconfirmed.');
+        if(!start && after[0]===1)throw Error('Gyro is still sampling.');
+        return start?'Stationary gyro capture started.':'Gyro capture stopped.';
+      }
       case 'start-sensor':{
+        if(!this.lock){
+          const before=await op.read(130);
+          await op.begin();
+          this.entered=true;
+          if(a.page==='imu' && before[1] && !before[0])this.restoreAfterAcc=before[15];
+        }
         const setup=await op.sensorState();
         const base=await op.read(6),reason=this.local.calibration.gate(this.ctx,this.local.sensorControls());
         if(reason||!this.local.sensorVisible())throw Error(reason||'Reopen the sensor calibration page.');
-        this.local.calibration.start(this.ctx,base,setup[15],performance.now());
+        this.local.calibration.start(this.ctx,base,setup[15],performance.now(),a.accMode);
         return 'Automatic capture started.';
       }
-      case 'retry-sensor':{
+      case 'resume-sensor':case 'retry-sensor':{
         await op.sensorState();
         await op.read(6);
         op.check();
         if (!this.local.sensorVisible()) throw Error('Reopen the sensor calibration page.');
+        if(key==='resume-sensor'){
+          this.local.calibration.resume(this.ctx,this.local.sensorControls());
+          return 'Continuing with the remaining faces.';
+        }
         this.local.calibration.retry(this.ctx,this.local.sensorControls());
         return 'Capturing highlighted faces.';
       }
       case 'imu':{
         await this.local.calibration.save(op,this.ctx,this.local.sensorControls());
+        if(a.page==='imu' && this.restoreAfterAcc===this.knownKit) {
+          const receipt=await op.finalize();
+          this.rememberReceipt(receipt);this.entered=false;this.restoreAfterAcc=null;
+          return 'ACC saved. The kit verified its previous setup and is disarmed.';
+        }
         return 'Accelerometer offsets and sensor check saved and verified on the kit.';
       }
       case 'receiver':{
@@ -325,8 +371,7 @@ export class ConfigPanel {
         const message=await op.pid(g,values,false);this.clearFields(g,values.map((_,i)=>i));return message;
       }
       case 'final':{
-        const receipt=await op.finalize();markEsc(receipt.kit,false);this.receipt=receipt;this.entered=false;this.confirm.clear();
-        try{localStorage.setItem(receiptKey(receipt.kit),JSON.stringify(receipt));}catch{/* available for this tab */}
+        const receipt=await op.finalize();markEsc(receipt.kit,false);this.rememberReceipt(receipt);this.entered=false;this.restoreAfterAcc=null;this.confirm.clear();
         return 'Setup saved and verified. Arming is available.';
       }
       case 'restart':{

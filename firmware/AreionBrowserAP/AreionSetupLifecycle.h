@@ -133,7 +133,7 @@ static void areion_setup_raw_update() {
   }
 }
 static bool areion_setup_before_set(uint16_t id,const std::vector<areion::Value>& values) {
-  if(AreionPidPending || AreionMotorTestActive || AreionEscState==1 || AreionEscState==2 || AreionEscBootMode) return false;
+  if(AreionGyro.busy() || AreionPidPending || AreionMotorTestActive || AreionEscState==1 || AreionEscState==2 || AreionEscBootMode) return false;
   if(id!=2 && id!=3 && id!=4 && id!=6 && id!=7 && id!=112 && id!=132 && id!=134) return true;
   auto* group=receiver.engine().findGroup(id);std::vector<areion::Value> current;
   if(!group || !group->values(current)) return false;
@@ -157,6 +157,7 @@ static bool areion_setup_before_set(uint16_t id,const std::vector<areion::Value>
   return areion_setup_persist();
 }
 static bool areion_setup_cancel(const char* why) {
+  AreionGyro.cancel();
   areion_setup_stop_motor();areion_reset_input();
   if(AreionEscState==1 || AreionEscState==2) {
     AreionEscState=6;AreionWizardStage=7;AreionSetupFault=why;
@@ -375,7 +376,7 @@ static areion::ActionResult areion_pid_action(const std::vector<areion::Value>& 
   auto* group=receiver.engine().findGroup(id);
   if(!group || !group->validate(values) || !group->values(current)) return {false,"PID_INVALID_VALUES"};
   if(!AreionStorageOK || !AreionSetupStoreHealthy) return {false,"SETUP_STORAGE_LOCKED"};
-  if(AreionMotorTestActive || AreionEscState==1 || AreionEscState==2 || AreionEscBootMode) return {false,"CALIBRATION_BUSY"};
+  if(AreionGyro.busy() || AreionMotorTestActive || AreionEscState==1 || AreionEscState==2 || AreionEscBootMode) return {false,"CALIBRATION_BUSY"};
   if(Armed) {
     if(!d[1].boolean) return {false,"BENCH_CONFIRM_REQUIRED"};
     if(AreionSetupLocked || !AreionWizardComplete) return {false,"SETUP_LOCKED"};
@@ -421,6 +422,19 @@ static areion::ActionResult areion_setup_action(const std::vector<areion::Value>
   if(Armed) return {false,"DISARM_FIRST"};
   if(!AreionStorageOK || !AreionSetupStoreHealthy) return {false,"SETUP_STORAGE_LOCKED"};
   if(AreionPidPending) return {false,"PID_SAVE_PENDING"};
+  if(cmd=="GYRO_CANCEL") {
+    if(!zeros) return {false,"SETUP_UNUSED_ARGS"};
+    AreionGyro.cancel(); return {true,"GYRO_STOPPED"};
+  }
+  if(AreionGyro.busy()) return {false,"GYRO_CALIBRATION_ACTIVE"};
+  if(cmd=="GYRO_ZERO") {
+    const uint32_t owner=receiver.engine().ownerSession();
+    if(!confirm || !owner) return {false,"GYRO_CONFIRM_REQUIRED"};
+    if(AreionEscState==1 || AreionEscState==2 || AreionMotorTestActive || !areion_imu_ready(now))
+      return {false,"IMU_OR_OUTPUT_BUSY"};
+    areion_setup_output_minimum();areion_reset_input(true);
+    AreionGyro.start(owner,now);return {true,"GYRO_STARTED"};
+  }
   if(cmd=="INPUT_SAVE") {
     if(a<0 || a>2 || b!=0) return {false,"INPUT_SOURCE"};
     return areion_input_save(int(a));

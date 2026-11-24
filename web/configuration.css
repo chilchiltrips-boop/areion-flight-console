@@ -55,3 +55,7 @@
 @media(max-width:860px){.cfg-pid-matrices,.cfg-gain-plots{grid-template-columns:1fr}.cfg-pid-head,.cfg-pid-state{flex-wrap:wrap}}
 
 .cfg-pid-state a{color:#a1efdc;font-weight:650;text-underline-offset:.18em}
+
+.cfg-step b{font-weight:inherit;flex:1}
+.cfg-step i{font:700 1rem/1 system-ui;color:#a5c3ce}
+.cfg-step[data-done=true] i{display:grid;place-items:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#254c38;color:#9af2ae}

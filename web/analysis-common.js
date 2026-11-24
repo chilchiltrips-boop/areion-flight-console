@@ -32,6 +32,7 @@ export function diagnostics(ctx, now=performance.now()) {
     host_session:connected?ctx.link?.session ?? null:null,
     fc_session:connected?ctx.link?.fcSession ?? null:null,
     link_frames:connected&&ctx.link?.stats?{tx:ctx.link.stats.sent,rx:ctx.link.stats.received}:null,
+    ...(connected && ctx.link?.current?.port?.timing ? {ap_transport:{...ctx.link.current.port.timing}} : {}),
     ...(!ctx.replay && ctx.link?.lastConnection ? {last_connection:ctx.link.lastConnection} : {}),
     ...(calibration ? {imu_calibration:calibration} : {}),
     received_packets:ctx.packetCount ?? ctx.rows.length, retained_packets:ctx.rows.length,
