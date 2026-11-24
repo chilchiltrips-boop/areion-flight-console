@@ -138,12 +138,26 @@ public final class AreionTouchInstrumentation extends Instrumentation {
     }
 
     private byte[][] encodeWithPackagedConsole() throws Exception {
-        js("import('./protocol.js').then(p=>{window.__fwProtocol=p;"
-                + "const base64=v=>btoa(String.fromCharCode(...v));window.__a1messages=["
-                + "base64(p.encodeRequest('HELLO',0,1,41,1)),"
-                + "base64(p.encodeCommand('CONTROL',9,41,2,[1600,1400,1000,1500,1000,1000,1500,2000]))]"
-                + "});true");
-        waitFor("Array.isArray(window.__a1messages)");
+        String encoder = """
+            try {
+                const url = new URL('./protocol.js', document.baseURI);
+                const protocol = await import(url.href);
+                window.__fwProtocol = protocol;
+                const base64 = bytes => btoa(String.fromCharCode(...bytes));
+                window.__a1messages = [
+                    base64(protocol.encodeRequest('HELLO', 0, 1, 41, 1)),
+                    base64(protocol.encodeCommand('CONTROL', 9, 41, 2, [1600,1400,1000,1500,1000,1000,1500,2000]))
+                ];
+            } catch (error) {
+                window.__a1error = String(error.stack || error);
+            }
+            """;
+        // A document module gets the same WebView module loader and base URL as the installed console.
+        js("(()=>{const script=document.createElement('script');script.type='module';"
+                + "script.onerror=()=>{window.__a1error='Could not execute test module at '+document.baseURI};"
+                + "script.textContent=" + JSONObject.quote(encoder) + ";document.head.append(script);return true})()");
+        waitFor("Array.isArray(window.__a1messages) || typeof window.__a1error==='string'");
+        require("null".equals(js("window.__a1error || null")), "A1 encoder failed: " + js("window.__a1error || null"));
         JSONArray values = new JSONArray(js("__a1messages"));
         return new byte[][]{android.util.Base64.decode(values.getString(0), android.util.Base64.DEFAULT),
                 android.util.Base64.decode(values.getString(1), android.util.Base64.DEFAULT)};
