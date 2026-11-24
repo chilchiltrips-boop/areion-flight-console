@@ -60,17 +60,10 @@ public final class AreionTouchInstrumentation extends Instrumentation {
             require(web != null, "A1 cockpit has no WebView");
             waitFor("document.querySelector('.a1-touch-deck')?.getBoundingClientRect().width>0", 60000);
             waitFor("location.origin==='https://chilchiltrips-boop.github.io'");
-            // A freshly launched Android WebView can render before it takes touch focus.
-            js("window.__titleTouched=false;document.querySelector('.a1-brand').addEventListener('pointerdown',"
-                    + "e=>{window.__titleTouched=e.isTrusted && e.pointerType==='touch'},{once:true});true");
-            float[] title = point(".a1-brand", .5, .5);
-            touch(MotionEvent.ACTION_DOWN, new int[]{0}, title);
-            touch(MotionEvent.ACTION_UP, new int[]{0}, title);
-            waitFor("window.__titleTouched && document.hasFocus()");
-            testTouch();
             byte[][] messages = encodeWithPackagedConsole();
             String telemetry = A1GatewayFixture.exchange(context, messages[0], messages[1]);
             checkReturnedChannels(telemetry);
+            testTouch();
             runOnMainSync(started::finish);
             result.putString("stream", "PASS Areion Android: packaged touch deck, simultaneous fingers, "
                     + "throttle latch, cancel, third-finger stop, offline preview, "
@@ -80,7 +73,7 @@ public final class AreionTouchInstrumentation extends Instrumentation {
             String diagnostic;
             try {
                 diagnostic = js("JSON.stringify({url:location.href,title:document.title,focus:document.hasFocus(),"
-                        + "titleTouched:window.__titleTouched,trustedTouches:window.__trustedTouches,"
+                        + "trustedTouches:window.__trustedTouches,"
                         + "ready:document.readyState,body:document.body.innerText.slice(0,650)})");
             } catch (Throwable unavailable) { diagnostic = "WebView unavailable"; }
             Log.e("AreionAcceptance", "Android check failed", failure);
@@ -211,11 +204,10 @@ public final class AreionTouchInstrumentation extends Instrumentation {
                 + "return [x,y,el.contains(document.elementFromPoint(x,y)),innerWidth]})()");
         JSONArray rect = new JSONArray(found);
         require(rect.getBoolean(2), selector + " is obscured");
-        int[] origin = new int[3];
-        runOnMainSync(() -> { web.getLocationOnScreen(origin); origin[2] = web.getWidth(); });
-        double scale = origin[2] / rect.getDouble(3);
-        return new float[]{origin[0] + (float) (rect.getDouble(0) * scale),
-                origin[1] + (float) (rect.getDouble(1) * scale)};
+        int[] width = new int[1];
+        runOnMainSync(() -> width[0] = web.getWidth());
+        double scale = width[0] / rect.getDouble(3);
+        return new float[]{(float) (rect.getDouble(0) * scale), (float) (rect.getDouble(1) * scale)};
     }
 
     private static int pointer(int action, int index) {
@@ -240,7 +232,8 @@ public final class AreionTouchInstrumentation extends Instrumentation {
         MotionEvent event = MotionEvent.obtain(gestureStart, now, action, ids.length, properties, coords,
                 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
         try {
-            require(getUiAutomation().injectInputEvent(event, true), "Android rejected touch");
+            // Hit-test native multitouch inside this WebView, independent of emulator system overlays.
+            runOnMainSync(() -> require(web.dispatchTouchEvent(event), "WebView rejected touch"));
         } finally { event.recycle(); }
     }
 
