@@ -224,7 +224,7 @@ export function mount(root) {
     }
     renderKey='';update(ctx);
   };
-  save.onclick=()=>{try{downloadCsv(ctx);}catch(e){lastMessage=e.message;put(note,lastMessage);}};
+  save.onclick=async()=>{try{await downloadCsv(ctx);}catch(e){lastMessage=e.message;put(note,lastMessage);}};
   build();
   return {show(route){if(Object.hasOwn(charts,route)) mode=route;build();},update,reset(){held=null;ctx=null;renderKey='';previousClock=-1;}};
 }

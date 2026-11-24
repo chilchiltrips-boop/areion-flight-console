@@ -34,6 +34,8 @@ function createWorker() {
       if(!ready&&!local)useWindow();else bridge.onerror?.(event);
     };
   }
+  // Android routes the gateway through its chosen Wi-Fi Network on the window bridge.
+  if(globalThis.AreionNativeSocket){useWindow();return bridge;}
   try{
     const source=JSON.parse(document.getElementById('ap-worker-source')?.textContent||'null');
     if(source)blobUrl=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));

@@ -10,11 +10,15 @@ export function node(tag, text, cls) {
 export const put=(el,text)=>{ if(el.textContent!==String(text)) el.textContent=text; };
 export const numeric=v=>typeof v==='number' && Number.isFinite(v) ? Number(v.toPrecision(6)).toString() : v==null ? '—' : String(v);
 export const active=ctx=>ctx?.state==='connected'||Boolean(ctx?.replay);
-export function downloadCsv(ctx, name='areion-telemetry.csv') {
-  const url=URL.createObjectURL(new Blob([serialize(ctx.rows)],{type:'text/csv;charset=utf-8'}));
+export async function downloadBlob(file,name) {
+  if(globalThis.AreionMobile) return globalThis.AreionMobile.saveFile(file,name);
+  const url=URL.createObjectURL(file);
   const link=node('a');link.href=url;link.download=name;
   document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+export function downloadCsv(ctx, name='areion-telemetry.csv') {
+  return downloadBlob(new Blob([serialize(ctx.rows)],{type:'text/csv;charset=utf-8'}),name);
 }
 export function diagnostics(ctx, now=performance.now()) {
   // The model receives live packets between paints; replay uses its playhead.
@@ -44,7 +48,9 @@ export async function copyReport(ctx, output) {
   const file=diagnosticFile(ctx.journal,diagnostics(ctx),'json');
   output.textContent='Preparing the diagnostic history…';
   try {
-    if(globalThis.ClipboardItem && navigator.clipboard?.write)
+    if(globalThis.AreionMobile)
+      await globalThis.AreionMobile.copyText(await (await file).text());
+    else if(globalThis.ClipboardItem && navigator.clipboard?.write)
       await navigator.clipboard.write([new ClipboardItem({'text/plain':file})]);
     else await navigator.clipboard.writeText(await (await file).text());
     output.textContent='Full diagnostics copied.';

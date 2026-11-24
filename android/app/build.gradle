@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+}
+
+def repo = rootProject.projectDir.parentFile
+def appVersion = new Properties()
+rootProject.file('version.properties').withInputStream { appVersion.load(it) }
+def generatedAssets = layout.buildDirectory.dir('generated/areionAssets')
+def simulatorSource = providers.environmentVariable('DRONELAB_SOURCE')
+def consoleAssets = tasks.register('prepareConsoleAssets', Exec) {
+    workingDir repo
+    inputs.files(fileTree(new File(repo, 'web')), fileTree(new File(repo, 'firmware')),
+        fileTree(new File(repo, 'android/console')), fileTree(new File(repo, 'scripts')),
+        fileTree(new File(repo, 'android/scripts')), new File(repo, 'package-lock.json'))
+    outputs.dir(generatedAssets.map { it.dir('console') })
+    commandLine 'node', 'android/scripts/prepare-console.mjs', generatedAssets.get().dir('console').asFile
+}
+def simulatorAssets = tasks.register('prepareSimulatorAssets', Exec) {
+    workingDir repo
+    inputs.file new File(repo, 'android/legacy/prepare.py')
+    inputs.files fileTree(new File(repo, 'android/legacy')) { exclude 'java/**' }
+    outputs.dir(generatedAssets.map { it.dir('simulator') })
+    def command = ['python3', 'android/legacy/prepare.py', '--output', generatedAssets.get().asFile]
+    if (simulatorSource.isPresent()) command.addAll(['--source', simulatorSource.get()])
+    commandLine command
+}
+
+android {
+    namespace 'in.zebjus.areion'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    defaultConfig {
+        applicationId 'in.zebjus.areion.console'
+        minSdk 26
+        targetSdk 35
+        versionCode appVersion.getProperty('versionCode').toInteger()
+        versionName appVersion.getProperty('versionName')
+        testInstrumentationRunner 'in.zebjus.areion.AreionTouchInstrumentation'
+    }
+    sourceSets {
+        main.java.srcDir rootProject.file('legacy/java')
+        main.assets.srcDir generatedAssets
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        debug { applicationIdSuffix '.preview' }
+    }
+}
+tasks.named('preBuild') { dependsOn consoleAssets, simulatorAssets }
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    androidTestImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+}

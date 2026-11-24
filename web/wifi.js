@@ -47,8 +47,8 @@ export class WifiPort {
     if (this.socket) throw Error('AP Wi-Fi is already open.');
     const errorHint = 'Join the kit Wi-Fi and allow local network access. The kit needs the browser AP firmware on port 8081.';
     let socket;
-    try { socket = new WebSocket(this.url, SUBPROTOCOL); }
-    catch { throw Error(errorHint); }
+    try { socket = new (globalThis.AreionNativeSocket || WebSocket)(this.url, SUBPROTOCOL); }
+    catch (error) { throw Error(globalThis.AreionNativeSocket ? error.message : errorHint); }
     this.socket = socket;
     socket.binaryType = 'arraybuffer';
     this.readable = new ReadableStream({

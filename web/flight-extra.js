@@ -66,7 +66,7 @@ export function mountFlightExtra(root){
   const controls=new Controls(bindings);
   let ctx=null,saving=false,dirty=false,savedSource=null,model=null,lastSource=null;
   let zero=0,prevTime=null,prevStamp=null,lastYaw=null,mapView=false,keyboardOnly=false,savedRead=null;
-  let retrySavedAt=Infinity;
+  let retrySavedAt=Infinity,touchDeck=null;
   const sender = new CockpitSender(controls,()=>ctx,reason=>{
     message(reason);
     if(ctx?.state==='connected')Promise.resolve(ctx.stopKit?.()).catch(e=>message(e.message));
@@ -133,7 +133,8 @@ export function mountFlightExtra(root){
     if(controls.key(k,true)){keyboardOnly=true;e.preventDefault();}
   }
   window.addEventListener('keydown',e=>keyEvent(e,true));window.addEventListener('keyup',e=>keyEvent(e,false));
-  const release=()=>{for(const stick of all('.tx-stick'))finishPointer(stick);stopActive('Sender stopped on focus loss.');keyboardOnly=false;};
+  const release=()=>{touchDeck?.suspend();for(const stick of all('.tx-stick'))finishPointer(stick);stopActive('Sender stopped on focus loss.');keyboardOnly=false;};
+  if(window.AreionTouchDeck)window.addEventListener('areion-app-pause',release);
   window.addEventListener('blur',release);window.addEventListener('pagehide',release);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)release();});
   keyboard.onchange=()=>{controls.pressed.clear();controls.stick(false,0,0,false);controls.stick(true,0,0,false);keyboardOnly=false;};
@@ -233,7 +234,7 @@ export function mountFlightExtra(root){
     }
     const g=currentGuard(c,now),nextView=transmitterView(c,g,selected);
     if(txView!==nextView || selected!==lastSource){
-      controls.reset();keyboardOnly=false;
+      touchDeck?.suspend();controls.reset();keyboardOnly=false;
       for(const stick of all('.tx-stick'))finishPointer(stick);
       if(keysDialog.open)keysDialog.close();
     }
@@ -302,14 +303,33 @@ export function mountFlightExtra(root){
       const val=statusMap[t.dataset.tile];t.dataset.tone=val.level;text(t.lastElementChild,val.label.toUpperCase());
     }
     buttons.expand.title=root.classList.contains('cockpit-expanded')?'Restore primary flight display':'Enlarge IMU and system health';
-    drawPfd(imu,yaw,since,modelChanged);
+    if(!touchDeck?.showing)drawPfd(imu,yaw,since,modelChanged);
     const attitudeLabel=imu?'Roll '+signed(imu.roll)+', pitch '+signed(imu.pitch)+', relative yaw '+signed(yaw):'Waiting for live IMU';
     pfd.setAttribute('aria-label',attitudeLabel);
     value('pose-state',imu?(c.replay?'REPLAY':'LIVE'):'OFFLINE');standby.hidden=!!imu;
     value('pose-ROLL',signed(imu?.roll));value('pose-PITCH',signed(imu?.pitch));value('pose-REL YAW',signed(yaw));
-    if(imu)airframe(mesh,c.group(134)?.[0]===2?'areion250':'areion450',[imu.roll,imu.pitch,yaw??0]);
-    else if(mesh.dataset.pose!=='offline'){mesh.dataset.pose='offline';mesh.getContext('2d')?.clearRect(0,0,mesh.width,mesh.height);}
+    if(imu){
+      if(!touchDeck?.showing)airframe(mesh,c.group(134)?.[0]===2?'areion250':'areion450',[imu.roll,imu.pitch,yaw??0]);
+    }else if(mesh.dataset.pose!=='offline'){mesh.dataset.pose='offline';mesh.getContext('2d')?.clearRect(0,0,mesh.width,mesh.height);}
+    touchDeck?.update({context:c,view:txView,selected,received,reason,yaw,mode,status});
     motors.forEach((el,i)=>{const n=s.motor?.[i];text(el.querySelector('b'),Number.isFinite(n)?Math.round(n):'—');el.querySelector('em').style.width=clamp(((n??1000)-1000)/10,0,100)+'%';});
   }
-  return {update:refresh,transmitter,cancelSender:()=>sender.stop(),get running(){return sender.running;}};
+  if(window.AreionTouchDeck){
+    touchDeck=window.AreionTouchDeck(root,{
+      controls,sender,buttons,canEdit:()=>canEdit()&&(!sender.running||sender.ready),
+      chooseAp:()=>{input.value='1';dirty=true;return saveSource();},
+      stop:async()=>{
+        sender.stop();
+        if(ctx&&!ctx.replay&&['connected','stale'].includes(ctx.state)){
+          await ctx.stopKit();
+          return true;
+        }
+        return false;
+      },
+      enter:()=>viewMap(false),
+      leave:()=>{stopActive('Left touch controls.');controls.reset();},
+      connect:()=>document.getElementById('connect')?.click()
+    });
+  }
+  return {update:refresh,transmitter,cancelSender:()=>{touchDeck?.suspend();return sender.stop();},get running(){return sender.running;}};
 }

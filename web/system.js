@@ -1,5 +1,5 @@
 import {diagnosticFile} from './diagnostic-report.js';
-import {active, copyReport, diagnostics, downloadCsv, hookTabs, node, numeric, put} from './analysis-common.js';
+import {active, copyReport, diagnostics, downloadBlob, downloadCsv, hookTabs, node, numeric, put} from './analysis-common.js';
 import {fields} from './telemetry-fields.js';
 
 const cached=new Set([2,3,4,6,7,110,112,121,125,132,134]);
@@ -110,10 +110,9 @@ export function mount(root){
   find('[data-copy]').onclick=reportTask(()=>copyReport(ctx,info));
   find('[data-history-csv]').onclick=reportTask(async()=>{
     put(info,'Preparing diagnostics CSV…');
-    const file=await diagnosticFile(ctx.journal,diagnostics(ctx),'csv'),link=node('a');
-    const url=URL.createObjectURL(file);link.href=url;link.download='areion-diagnostics-'+new Date().toISOString().replaceAll(':','-')+'.csv';
-    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
-    put(info,'Diagnostics CSV exported.');
+    const file=await diagnosticFile(ctx.journal,diagnostics(ctx),'csv');
+    await downloadBlob(file,'areion-diagnostics-'+new Date().toISOString().replaceAll(':','-')+'.csv');
+    put(info,'Diagnostics CSV prepared.');
   });
   find('[data-clear]').onclick=()=>{clearConfirm.hidden=false;};
   find('[data-clear-no]').onclick=()=>{clearConfirm.hidden=true;};
@@ -145,7 +144,7 @@ export function mount(root){
     if(!log.children.length)log.append(node('li','No results recorded yet.'));
   }
   connect.onclick=()=>ctx?.toggleUsb?.();
-  csv.onclick=()=>{if(!ctx)return;try{downloadCsv(ctx);}catch(e){put(info,e.message);}};
+  csv.onclick=async()=>{if(!ctx)return;try{await downloadCsv(ctx);}catch(e){put(info,e.message);}};
   function update(next){
     ctx=next;csv.disabled=!ctx.rows.length;
     if(view==='values'){

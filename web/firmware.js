@@ -1,4 +1,4 @@
-import {active,copyReport,node,put} from './analysis-common.js';
+import {active,copyReport,downloadBlob,node,put} from './analysis-common.js';
 import {loadManifest,loadRelease,reportsComponents} from './firmware-release.js';
 import {flashAp} from './firmware-ota.js';
 import {flashPort} from './firmware-flash.js';
@@ -19,6 +19,19 @@ export function mount(root) {
   const details=root.querySelector('dl'),compat=root.querySelector('.ac-compat'),note=root.querySelector('.ac-note');
   const values=labels.map(label=>{const value=node('dd','—');details.append(node('dt',label),value);return value;});
   const wifi=mountWifi(root),mode=find('mode'),safe=find('safe'),read=find('read'),flash=find('flash');
+  if(globalThis.AreionMobile){
+    for(const option of mode.options) if(option.value!=='ap') option.disabled=true;
+    mode.value='ap';
+    find('sources').addEventListener('click',async event=>{
+      event.preventDefault();
+      try{
+        const source=event.currentTarget;
+        const response=await fetch(source.href);
+        if(!response.ok) throw Error('Firmware source archive unavailable.');
+        await downloadBlob(await response.blob(),source.download);
+      }catch(error){put(note,error.message);}
+    });
+  }
   const reconnect=find('reconnect'),progress=find('progress'),stage=find('flash-message');
   let ctx=null,busy=false,flashing=false,generation=0,verified=null,expectedKit=null,flashHandle=null,waitForBoot=false;
   let releaseInfo=null,previousBoot=null,transferMode=null,connection=null;

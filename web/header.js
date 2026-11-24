@@ -68,7 +68,7 @@ function navMarkup([route, label]) {
     '<img src="./assets/console/nav-'+route+'.svg" alt=""><span>'+label+'</span></button>';
 }
 
-export function mountHeader(root, {connect, disconnect, stop, notice = () => {}, apSupported = false, apDefault = DEFAULT_AP_URL, access = browserAccess(window), retryOffline = () => {}}) {
+export function mountHeader(root, {connect, disconnect, stop, notice = () => {}, apSupported = false, apDefault = DEFAULT_AP_URL, access = browserAccess(window), apOnly = false, retryOffline = () => {}}) {
   root.classList.add('console-mast');
   root.innerHTML = `
     <div class="console-toolbar">
@@ -102,6 +102,10 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
   const find = selector => root.querySelector(selector);
   const primary = find('#connect'), cancel = find('#disconnect'), halt = find('#header-stop');
   const routePill = find('#link-state'), armPill = find('#top-arm'), transport = find('#header-transport');
+  if (apOnly) {
+    transport.querySelector('option[value="usb"]').remove();
+    transport.value='ap';
+  }
   const menu = find('#header-port-menu'), endpoint = find('#header-port'), usbWrap = find('.port-wrap');
   const apAddress = find('#header-ap'), addPort = find('.add-port');
   const options = find('.port-options'), empty = find('.port-empty'), meter = find('.traffic-meter');
@@ -258,7 +262,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     write(scan.lastElementChild, scanLabel);
     scan.setAttribute('aria-label', scanLabel);
     usbWrap.hidden = ap; apAddress.hidden = !ap;
-    const linkHint = issue || (ap && !open ? scanMessage || 'Join the kit in your computer’s Wi-Fi settings, then find it or connect.' : '');
+    const linkHint = issue || (ap && !open ? scanMessage || 'Join the kit in Wi-Fi settings, then find it or connect.' : '');
     const offlineIssue = ['unavailable','failed','update'].includes(offline.state);
     notifications.setConnection(linkHint, !!issue || (!!scanMessage && !probe),
       access.embedded && !!(issue || offlineIssue));

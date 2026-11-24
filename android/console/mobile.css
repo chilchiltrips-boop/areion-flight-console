@@ -1,0 +1,111 @@
+.areion-android {
+  -webkit-text-size-adjust: 100%;
+}
+.areion-android body {
+  min-width: 0;
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.areion-android .console-pane { min-width: 0; }
+.areion-android .android-welcome-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .45rem; }
+.areion-android .android-welcome-actions button { min-height: 42px; }
+.areion-android .console-mast .android-device-action { display: none; }
+.areion-android .console-mast .page-picker.is-open .android-device-action { display: flex; }
+.areion-android #header-transport { display: none; }
+.areion-android .console-toolbar { padding-top: max(5px, env(safe-area-inset-top)); }
+.areion-android .console-mast :is(#pages-menu, #connect, #disconnect, #header-stop, .bell-button, #find-ap),
+.areion-android .console-pane :is(button, select, input:not([type=checkbox],[type=range])) {
+  min-height: 42px;
+}
+.areion-android .console-pane label:has(input[type=checkbox]) { min-height: 38px; }
+.areion-android .console-pane :is(.cfg-steps, .ac-table-wrap, .cfg-table, .cfg-tabs) {
+  -webkit-overflow-scrolling: touch;
+}
+.areion-android :is(.cfg-card, .cfg-table, .ac-box, .ac-sub, .fw-message, .cfg-operation) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1000px) {
+  .areion-android .console-mast #pages-menu {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: auto;
+    min-width: 44px;
+    padding: 6px 10px;
+  }
+  .areion-android #pages-menu::after { content: "Pages"; }
+  .areion-android .console-mast .page-picker nav { display: none; }
+  .areion-android .console-mast .page-picker.is-open nav {
+    display: grid;
+    grid-template-columns: 1fr;
+    position: absolute;
+    left: 0;
+    top: calc(100% + 5px);
+    width: min(17rem, calc(100vw - 1.5rem));
+    max-height: min(70dvh, 30rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: .35rem;
+    border: 1px solid #5d7a88;
+    border-radius: 9px;
+    background: #142b3c;
+    box-shadow: 0 9px 28px #06131b80;
+    white-space: normal;
+  }
+  .areion-android .console-mast .page-picker.is-open .nav {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    min-height: 44px;
+    padding: .5rem .7rem;
+    gap: .55rem;
+  }
+  .areion-android .console-mast .page-picker.is-open .nav :is(img, span) { display: inline; }
+  .areion-android .console-mast .link-controls { flex: 1; }
+  .areion-android .console-mast #header-ap { width: auto; min-width: 0; max-width: 18rem; flex: 1; }
+  .areion-android .console-mast .page-picker { flex: 0 0 5.1rem; }
+  .areion-android .console-mast :is(#find-ap, #disconnect, .bell-button) { min-width: 42px; }
+  .areion-android .cfg-tabs { align-items: stretch; }
+  .areion-android .cfg-steps { max-width: 100%; }
+  .areion-android .cfg-step { min-height: 44px; }
+  .areion-android .ac-toolbar, .areion-android .ac-scope-title { flex-wrap: wrap; }
+  .areion-android .ac-details dd { min-width: 0; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 650px) {
+  .areion-android .console-toolbar {
+    display: grid;
+    grid-template-columns: minmax(4.8rem, 1fr) auto auto auto;
+    grid-template-areas: "pages status stop alerts" "connection connection connection connection";
+    gap: 4px 8px;
+    padding: .3rem .45rem;
+  }
+  .areion-android .console-mast .identity { display: none; }
+  .areion-android .page-picker { grid-area: pages; }
+  .areion-android .console-mast .kit-state { grid-area: status; font-size: .8rem; width: auto; }
+  .areion-android #header-stop { grid-area: stop; min-width: 50px; }
+  .areion-android .header-notifications { grid-area: alerts; }
+  .areion-android .console-mast .link-controls { grid-area: connection; width: 100%; gap: 5px; }
+  .areion-android .console-mast #header-ap { max-width: none; font-size: .88rem; }
+  .areion-android .console-mast .traffic-meter { display: none; }
+  .areion-android .console-mast #connect { width: auto; padding-inline: .7rem; font-size: .83rem; }
+  .areion-android main { padding: .5rem; }
+  .areion-android #welcome-page { padding: .9rem; height: auto; overflow: visible; }
+  .areion-android :is(.welcome-summary,.cfg-grid,.cfg-pid-matrices,.cfg-gain-plots,.ac-grid,.fw-grid) {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .areion-android .cfg-wiz, .areion-android .cfg-grid { min-width: 0; }
+  .areion-android .cfg-wiz > *, .areion-android .cfg-grid > * { min-width: 0; }
+  .areion-android .cfg-tabs {
+    flex-flow: row nowrap;
+    overflow-x: auto;
+    padding: .25rem;
+    gap: .2rem;
+  }
+  .areion-android .cfg-tabs button { flex: none; }
+  .areion-android .cfg-card, .areion-android .ac-box { padding: .7rem; }
+  .areion-android #system-page .ac-table { min-width: 32rem; }
+  .areion-android .ac-details { grid-template-columns: minmax(6rem,.85fr) minmax(0,1fr); gap: .5rem; }
+}

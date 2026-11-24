@@ -12,6 +12,7 @@ import {mountFlightExtra} from './flight-extra.js';
 import {ConsoleShell} from './shell.js';
 import {saveFlightInput} from './config-commands.js';
 import {MAX_CSV_BYTES, parseCsv, serialize} from './records.js';
+import {downloadBlob} from './analysis-common.js';
 
 const $ = id => document.getElementById(id);
 const elapsed = ms => Math.floor(ms / 60000) + ':' + String(Math.floor(ms / 1000) % 60).padStart(2,'0');
@@ -19,7 +20,8 @@ const openStates = new Set(['opening','handshake','connected','stale']);
 const empty = new Instruments();
 let live = new Instruments();
 let recording = [], packetCount = 0;
-let replay = null, state = 'offline', page = 'welcome', path = 'USB';
+const android = globalThis.AreionMobile;
+let replay = null, state = 'offline', page = 'welcome', path = android ? 'AP' : 'USB';
 let nextPaint = 0, lastShellUpdate = -Infinity;
 let connecting = false, stopPending = null, apRecoveryTimer=null, recoveryTimes=[];
 function cancelApRecovery(){clearTimeout(apRecoveryTimer);apRecoveryTimer=null;}
@@ -151,6 +153,7 @@ function leaveControls() {
   shell.modules.get('configuration')?.suspend?.();
 }
 window.addEventListener('blur', leaveControls);
+if (android) window.addEventListener('areion-app-pause',leaveControls);
 window.addEventListener('pagehide',()=>{leaveControls();void journal.flush();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)void journal.flush();});
 document.addEventListener('visibilitychange', () => { if (document.hidden) leaveControls(); });
@@ -219,9 +222,14 @@ async function withFirmwarePort(mode,prepare,program) {
 }
 window.addEventListener('pagehide',cancelApRecovery);
 const access = browserAccess(window);
+if (android) {
+  access.serial = null;
+  access.usbIssue = 'USB installation and Wi-Fi password recovery are available in the desktop console.';
+  access.apIssue = globalThis.AreionNativeSocket ? '' : 'The Android AP link is unavailable. Reopen the app.';
+}
 document.documentElement.dataset.embedded = String(access.embedded);
 const header = mountHeader(document.querySelector('.mast'),{
-  connect,disconnect,stop:stopKit,notice,apSupported:true,apDefault:DEFAULT_AP_URL,access,retryOffline:() => retryOffline()
+  connect,disconnect,stop:stopKit,notice,apSupported:true,apDefault:DEFAULT_AP_URL,access,apOnly:!!android,retryOffline:() => retryOffline?.()
 });
 
 $('header-transport').addEventListener('change',cancelApRecovery);
@@ -302,11 +310,10 @@ $('play').onclick=()=>{
   replay.startedAt=performance.now()-replay.position;replay.playing=true;text($('play'),'Pause');
 };
 $('close-replay').onclick=()=>{dropReplay();render();};
-$('export').onclick=()=>{
+$('export').onclick=async()=>{
   try{
-    const url=URL.createObjectURL(new Blob([serialize(recording)],{type:'text/csv;charset=utf-8'}));
-    const a=document.createElement('a');a.href=url;a.download='areion-telemetry-'+new Date().toISOString().replaceAll(':','-')+'.csv';a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const blob=new Blob([serialize(recording)],{type:'text/csv;charset=utf-8'});
+    await downloadBlob(blob,'areion-telemetry-'+new Date().toISOString().replaceAll(':','-')+'.csv');
   }catch(e){notice(e.message);}
 };
 function tick(now){
@@ -318,7 +325,8 @@ function tick(now){
 }
 shell.start();render();requestAnimationFrame(tick);
 
-const retryOffline = monitorOffline({
+const retryOffline = android ? null : monitorOffline({
   workers:access.workers, core:document.querySelector('meta[name="areion-core"]')?.content,
   update:value => header.setOffline(value)
 });
+if (android) header.setOffline({state:'ready',detail:'Console pages are included in the installed app.'});
