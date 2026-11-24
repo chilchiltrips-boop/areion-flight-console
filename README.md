@@ -2,12 +2,12 @@
 
 [Open Flight Data](https://chilchiltrips-boop.github.io/areion-flight-console/#flight) · [Open the setup wizard](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/wizard)
 
-The GitHub Pages application runs in the browser and talks directly to the Areion FC A1. The laptop needs only a compatible browser. The two-row header contains the link state, arming status, DISARM / STOP, navigation, TX/RX frame rates, transport selector, port chooser and manual connection controls.
+The GitHub Pages application runs in the browser and talks directly to the Areion FC A1. The laptop needs only a compatible browser. The toolbar keeps navigation, TX/RX rates, the kit connection, arming status and STOP on one line. The notification bell shows offline readiness and update messages. Opening it marks the messages as read.
 
 ## Connect the kit
 
 - **USB.** Use desktop Chrome or Edge. Connect the kit by USB, choose **USB ports → Choose a new port…**, grant access to the board and press **Connect**. Close other applications using the same port. The list updates when devices are attached or removed. The console remembers the last confirmed USB type. If several identical adapters are present, choose the intended one. The browser may identify a port by vendor and product IDs.
-- **AP Wi-Fi.** Stock 3.2.0 firmware provides a UDP endpoint for desktop clients. Direct access from this website requires the optional [browser AP firmware](firmware/README.md) on the kit. Open the console online first and allow it to finish preparing for offline use. Wait for **Offline ready** in the header. Join the kit’s Wi-Fi in the computer’s Wi-Fi settings. Select **AP Wi-Fi → Find kit → Connect**. Find kit checks the selected address and the factory address with a read-only gateway poll. Connect opens the FC session. Allow local network access when prompted by your browser.
+- **AP Wi-Fi.** Stock 3.2.0 firmware provides a UDP endpoint for desktop clients. Direct access from this website requires the optional [browser AP firmware](firmware/README.md) on the kit. Open the console online first and allow it to finish preparing for offline use. Open **Notifications** and wait for **Offline ready**. Join the kit’s Wi-Fi in the computer’s Wi-Fi settings. Select **AP Wi-Fi → Find kit → Connect**. Find kit checks the selected address and the factory address with a read-only gateway poll. Connect opens the FC session. Allow local network access when prompted by your browser.
 - **Recordings.** Use **Flight Data → Controls → Recordings** to import a telemetry CSV or export the current session. Replay drives the instruments and plots from recorded packets. Hardware commands require a live controller.
 
 The header chooses the link to the kit. **Flight Data → Save input** independently selects PPM, AP or USB flight input. Switching input preserves the rest of the setup. Disarm the kit and stop its sender before changing input.
@@ -29,7 +29,7 @@ If the platform sends a restrictive `Permissions-Policy` header, include `https:
 
 ### Switching to kit Wi-Fi
 
-1. Open the **actual embedded page** online in the browser profile that will connect to the kit. Wait for **Offline ready** inside the console. This verifies the cached files for every console page, including the assembly and PID models. Use **Retry** if a download was interrupted.
+1. Open the **actual embedded page** online in the browser profile that will connect to the kit. Open the console’s **Notifications** and wait for **Offline ready**. This verifies the cached files for every console page, including the assembly and PID models. Use **Retry** if a download was interrupted.
 2. Leave this window open and join the kit’s access point in the computer’s Wi-Fi menu (the example firmware calls it **aerion drone**). **Find kit** checks the Areion gateway on that network. Browsers do not list or join nearby SSIDs for the page.
 3. Choose **Connect** and allow local network access. The header’s TX/RX meters show actual traffic after the FC handshake. USB uses the same pages via desktop Web Serial. Choose a port when prompted. Neither discovery nor changing networks starts a sender.
 4. To reload the **entire platform page** without internet, the host site must also cache its own page. Chrome partitions embedded storage by the top-level site, so warm each platform separately. For a host you control, [copy the offline embed example](examples/offline-embed/) into its own HTTPS directory, or cache the embedding page in your existing site worker. The example shows separate host and console readiness. If you use the standalone console as a fallback, open that tab online once as well.

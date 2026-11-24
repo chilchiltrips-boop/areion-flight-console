@@ -15,8 +15,7 @@ export function usbKey(port) {
 
 export function usbLabel(port) {
   const key = usbKey(port);
-  if (!key) return 'Serial port';
-  return (key.startsWith('303A:') ? 'Espressif USB' : 'USB serial') + ' · ' + key;
+  return key ? 'USB ' + key.slice(5) : 'Serial port';
 }
 
 function storedPreference(storage) {
@@ -60,8 +59,12 @@ export class GrantedPorts {
     return this.ports.map(port => {
       const label = usbLabel(port);
       const similar = this.ports.filter(other => usbLabel(other) === label);
-      const remembered = port === this.confirmedPort || (this.preferred && usbKey(port) === this.preferred && similar.length === 1);
-      return {port, label: similar.length === 1 ? label : label + ' · device ' + this.id(port), remembered: Boolean(remembered)};
+      const key = usbKey(port);
+      const matchesPreference = this.preferred && key === this.preferred &&
+        this.ports.filter(other => usbKey(other) === key).length === 1;
+      const remembered = port === this.confirmedPort || matchesPreference;
+      const shortLabel = similar.length === 1 ? label : label + ' #' + this.id(port);
+      return {port, label: shortLabel, key, remembered: Boolean(remembered)};
     });
   }
 

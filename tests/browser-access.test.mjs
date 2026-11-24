@@ -53,3 +53,32 @@ test('a host that refuses offline storage reports the permission problem', async
   assert.equal(statuses.at(-1).state,'unavailable');
   assert.match(statuses.at(-1).detail,/offline storage/);
 });
+
+test('a waiting update wins over a late cache reply and clears after activation', async()=>{
+  const workers=new EventTarget(), reg=new EventTarget(), pending=new EventTarget(), statuses=[];
+  reg.waiting=pending;pending.state='installed';reg.active=workers.controller={scriptURL:'worker'};
+  workers.register=async()=>reg;
+  let finish;
+  monitorOffline({workers,core:'one',workerURL:'worker',update:value=>statuses.push(value),
+    ask:()=>new Promise(resolve=>{finish=resolve;})});
+  await nextTurn();
+  assert.equal(statuses.at(-1).state,'update');
+  assert.match(statuses.at(-1).detail,/reopen this page online/);
+  finish({core:'one',total:2,cached:2});await nextTurn();
+  assert.equal(statuses.at(-1).state,'update');
+  reg.waiting=null;pending.state='activated';reg.active=workers.controller={scriptURL:'worker'};
+  workers.dispatchEvent(new Event('controllerchange'));
+  finish({core:'one',total:2,cached:2});await nextTurn();
+  assert.equal(statuses.at(-1).state,'ready');
+});
+
+test('an update installed while the console is open raises an update notification', async()=>{
+  const workers=new EventTarget(), reg=new EventTarget(), install=new EventTarget(), statuses=[];
+  reg.active=workers.controller={scriptURL:'worker'};workers.register=async()=>reg;
+  monitorOffline({workers,core:'one',workerURL:'worker',update:value=>statuses.push(value.state),
+    ask:async()=>({core:'one',total:2,cached:2})});
+  await nextTurn();assert.equal(statuses.at(-1),'ready');
+  reg.installing=install;reg.dispatchEvent(new Event('updatefound'));
+  reg.installing=null;reg.waiting=install;install.state='installed';install.dispatchEvent(new Event('statechange'));
+  assert.equal(statuses.at(-1),'update');
+});

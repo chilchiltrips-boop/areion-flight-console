@@ -3,12 +3,14 @@ import {put} from './analysis-common.js';
 export const wifiPanel = '<section class="ac-box fw-card"><header><div><p class="fw-kicker">NETWORK</p><h3>Kit Wi-Fi</h3></div><span class="fw-tag">USB only</span></header>'+
   '<div class="fw-network"><span>Active network <strong data-ap-active>—</strong></span><span>Saved network <strong data-ap-saved>—</strong></span></div>'+
   '<label class="fw-field">Wi-Fi name (SSID)<input data-ap-name autocomplete="off" placeholder="aerion drone" maxlength="32" spellcheck="false"></label>'+
-  '<label class="fw-field">New password<input data-ap-key type="password" autocomplete="new-password" maxlength="63" placeholder="8–63 printable characters" spellcheck="false"></label>'+
+  '<div class="fw-field"><label for="kit-new-password">New password</label><div class="fw-password">'+
+  '<input id="kit-new-password" data-ap-key type="password" autocomplete="new-password" maxlength="63" placeholder="8–63 printable characters" spellcheck="false" autocapitalize="none">'+
+  '<button type="button" data-ap-key-show aria-controls="kit-new-password" disabled>Show password</button></div></div>'+
   '<div class="ac-actions"><button data-ap-save disabled>Save Wi-Fi</button><button data-ap-read disabled>Read Wi-Fi</button><button data-ap-recover disabled>Recover access</button></div>'+
   '<div data-ap-recovery class="fw-recovery" hidden><p>Restore <b>aerion drone</b> with a new password. Restart the kit after saving.</p>'+
   '<div class="ac-actions"><button data-ap-confirm>Restore Wi-Fi</button><button data-ap-cancel>Cancel</button></div></div>'+
-  '<div data-ap-result class="fw-recovery" hidden><label class="fw-field">New recovery password<input data-ap-secret type="password" autocomplete="off" readonly></label>'+
-  '<button data-ap-show>Show password</button></div><p data-ap-message class="fw-message" role="status"></p></section>';
+  '<div data-ap-result class="fw-recovery" hidden><label class="fw-field">New recovery password<input id="kit-recovery-password" data-ap-secret type="password" autocomplete="off" readonly></label>'+
+  '<button type="button" data-ap-show aria-controls="kit-recovery-password">Show password</button></div><p data-ap-message class="fw-message" role="status"></p></section>';
 
 export function recoveryPassword() {
   const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -24,6 +26,13 @@ export function mountWifi(root) {
     const parts=String(ctx?.group(125)?.[0]||'').split('.').map(Number);
     return parts[0]===3 && parts[1]>=3;
   };
+  function showPassword(field, button, visible) {
+    field.type=visible?'text':'password';
+    put(button,visible?'Hide password':'Show password');
+  }
+  const keyShow=el('key-show'), recoveryShow=el('show');
+  keyShow.onclick=()=>showPassword(key,keyShow,key.type==='password');
+  recoveryShow.onclick=()=>showPassword(secret,recoveryShow,secret.type==='password');
   function draw() {
     const can=usable() && compatible() && !ctx.firmwareBusy && !busy;
     const disarmed=can && ctx.group(120,1500)?.[0]===false;
@@ -32,13 +41,16 @@ export function mountWifi(root) {
       /[\x00-\x1f\x7f]/.test(name.value) || !asciiPassword(key.value);
     el('recover').disabled=el('confirm').disabled=!disarmed;
     name.disabled=key.disabled=!can;
+    keyShow.disabled=!can;
     put(message,notice || (!usable()?'Connect the kit over USB.':!compatible()?'USB Wi-Fi settings require firmware 3.3.0 or later.':
       !disarmed?'Waiting for a disarmed kit.':'Changes take effect at the next restart.'));
   }
   function clear() {
     seq++; busy=false; readOnce=false; dirty=false; notice='';
-    key.value=name.value=secret.value=''; secret.type='password';
-    put(el('show'),'Show password'); recovery.hidden=result.hidden=true;
+    key.value=name.value=secret.value='';
+    showPassword(key,keyShow,false);
+    showPassword(secret,recoveryShow,false);
+    recovery.hidden=result.hidden=true;
     put(el('active'),'—');put(el('saved'),'—');
   }
   async function perform(operation) {
@@ -46,12 +58,13 @@ export function mountWifi(root) {
     const ticket=++seq, link=ctx.link, identityAtStart=identity;
     const current=()=>ticket===seq && identity===identityAtStart && link.current===identityAtStart;
     busy=true;notice=operation==='read'?'Reading Wi-Fi settings…':'Saving Wi-Fi settings…';draw();
+    if (operation!=='read') showPassword(key,keyShow,false);
     let acknowledged=false;
     try {
       if (operation!=='read') {
         if (ctx.group(120,1500)?.[0]!==false) throw Error('Disarm the kit first.');
         if (operation==='recover') {
-          secret.value=recoveryPassword();secret.type='password';put(el('show'),'Show password');
+          secret.value=recoveryPassword();showPassword(secret,recoveryShow,false);
           recovery.hidden=true;result.hidden=false;
           await link.action(138,['RECOVER_AP',secret.value]);
         } else await link.action(138,['SET_AP',name.value,key.value]);
@@ -77,7 +90,6 @@ export function mountWifi(root) {
   el('read').onclick=()=>perform('read');el('save').onclick=()=>perform('save');
   el('recover').onclick=()=>{recovery.hidden=false;};el('cancel').onclick=()=>{recovery.hidden=true;};
   el('confirm').onclick=()=>perform('recover');
-  el('show').onclick=()=>{secret.type=secret.type==='password'?'text':'password';put(el('show'),secret.type==='text'?'Hide password':'Show password');};
   return {
     update(next) {
       ctx=next;

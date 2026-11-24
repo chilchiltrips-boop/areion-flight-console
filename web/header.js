@@ -1,10 +1,11 @@
+import {mountNotifications} from './header-notifications.js';
 import {GrantedPorts} from './ports.js';
 import {browserAccess} from './browser-access.js';
 import {DEFAULT_AP_URL, findApGateway} from './wifi.js';
 
 const ROUTES = [
   ['welcome', 'Welcome'], ['assembly', 'Assembly'], ['flight', 'Flight Data'], ['configuration', 'Configuration'],
-  ['system', 'System'], ['scopes', 'Scopes'], ['hitl', 'HITL'], ['firmware', 'Firmware']
+  ['system', 'System'], ['scopes', 'Scopes'], ['firmware', 'Firmware']
 ];
 const OPEN = new Set(['opening', 'handshake', 'connected', 'stale']);
 const BUSY = new Set(['opening', 'handshake']);
@@ -63,20 +64,21 @@ function meterMarkup(direction) {
 }
 
 function navMarkup([route, label]) {
-  const disabled = route === 'hitl' ? ' disabled title="Hardware-in-the-loop is unavailable in this release"' : '';
-  return '<button type="button" class="nav" data-route="'+route+'" id="'+route+'-tab"'+disabled+
-    '><img src="./assets/console/nav-'+route+'.svg" alt="">'+label+'</button>';
+  return '<button type="button" class="nav" data-route="'+route+'" id="'+route+'-tab" title="'+label+'" aria-label="'+label+'">'+
+    '<img src="./assets/console/nav-'+route+'.svg" alt=""><span>'+label+'</span></button>';
 }
 
 export function mountHeader(root, {connect, disconnect, stop, notice = () => {}, apSupported = false, apDefault = DEFAULT_AP_URL, access = browserAccess(window), retryOffline = () => {}}) {
   root.classList.add('console-mast');
   root.innerHTML = `
-    <div class="top-line"><div class="identity"><strong>AREION</strong><span>FC A1 · Web Console</span></div>
-      <div class="head-actions"><div class="offline-tools"><span id="offline-state" role="status">Preparing offline…</span><button id="offline-retry" type="button" hidden>Retry</button></div><span id="link-state" role="status">OFFLINE</span><span id="top-arm">ARM UNKNOWN</span>
-        <button id="header-stop" type="button" disabled><span aria-hidden="true">■</span> DISARM / STOP</button>
+    <div class="console-toolbar">
+      <div class="identity" aria-label="Areion FC A1"><strong>AREION</strong><span>FC A1</span></div>
+      <div class="page-picker">
+        <button type="button" id="pages-menu" title="Console pages" aria-label="Console pages" aria-expanded="false" aria-controls="console-pages">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <nav aria-label="Console pages" id="console-pages">${ROUTES.map(navMarkup).join('')}</nav>
       </div>
-    </div>
-    <div class="nav-line"><nav aria-label="Console pages">${ROUTES.map(navMarkup).join('')}</nav>
       <div class="link-controls" aria-label="Kit connection">
         <div class="traffic-meter" role="group" aria-label="Transport frame rates">${meterMarkup('tx')}${meterMarkup('rx')}</div>
         <select id="header-transport" aria-label="Connection transport"><option value="usb">USB</option><option value="ap">AP Wi-Fi</option></select>
@@ -87,26 +89,28 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
             <button type="button" role="menuitem" class="add-port">Choose a new port…</button>
           </div>
         </div>
-        <input type="url" id="header-ap" aria-label="Kit WebSocket address" title="Kit WebSocket address" aria-describedby="header-ap-info" spellcheck="false" autocomplete="off" hidden>
-        <button type="button" id="find-ap" hidden>Find kit</button>
+        <input type="url" id="header-ap" aria-label="Kit WebSocket address" title="Kit WebSocket address" aria-describedby="hardware-hint" spellcheck="false" autocomplete="off" hidden>
+        <button type="button" id="find-ap" aria-label="Find kit" title="Find kit" hidden><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><span>Find kit</span></button>
         <button type="button" class="primary" id="connect">Connect</button>
         <button type="button" id="disconnect" aria-label="Disconnect the kit" title="Disconnect the kit" disabled>×</button>
       </div>
-    </div>
-    <div id="header-ap-info" hidden><span id="hardware-hint" role="status"></span>
-      <a id="open-console" target="_blank" rel="noopener" hidden>Open console in a tab</a></div>`;
+      <div class="kit-state"><span id="link-state" role="status">OFFLINE</span><span id="top-arm"><span class="arm-label">ARM UNKNOWN</span><span class="arm-short" aria-hidden="true">ARM ?</span></span></div>
+      <button id="header-stop" type="button" aria-label="Disarm / stop" title="Disarm / stop" disabled><span aria-hidden="true">■</span><span class="disarm-word"> DISARM /</span> STOP</button>
+      <div class="header-notifications"></div>
+    </div>`;
 
   const find = selector => root.querySelector(selector);
   const primary = find('#connect'), cancel = find('#disconnect'), halt = find('#header-stop');
   const routePill = find('#link-state'), armPill = find('#top-arm'), transport = find('#header-transport');
   const menu = find('#header-port-menu'), endpoint = find('#header-port'), usbWrap = find('.port-wrap');
-  const apAddress = find('#header-ap'), apInfo = find('#header-ap-info'), addPort = find('.add-port');
+  const apAddress = find('#header-ap'), addPort = find('.add-port');
   const options = find('.port-options'), empty = find('.port-empty'), meter = find('.traffic-meter');
-  const offlineStatus = find('#offline-state'), retry = find('#offline-retry'), scan = find('#find-ap');
-  const hint = find('#hardware-hint'), standalone = find('#open-console');
+  const scan = find('#find-ap'), pages = find('.page-picker'), pagesToggle = find('#pages-menu');
   const traffic = new TrafficMeter();
   let storage;
   try { storage = localStorage; } catch { /* Private mode can restrict storage. */ }
+  const release = document.querySelector('meta[name="areion-core"]')?.content || '';
+  const notifications = mountNotifications(find('.header-notifications'), {release, storage, retry:retryOffline});
   const catalog = new GrantedPorts(access.serial, storage, drawPorts);
   let state = 'offline', pending = false, stopping = false, attempt = 0, lastCtx = null, activeEndpoint = null;
   let flashing=false;
@@ -119,17 +123,28 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
   if (apSupported) {
     try { apAddress.value = storage?.getItem('areion.ap.endpoint.v1') || apDefault; } catch {}
   }
-  const labels = {preparing:'Preparing offline…', ready:'Offline ready', failed:'Offline incomplete',
-    unavailable:'Offline unavailable', update:'Offline update pending'};
   function setOffline(value) {
     offline = value;
-    write(offlineStatus, labels[value.state]);
-    offlineStatus.dataset.state = value.state;
-    offlineStatus.title = value.detail;
-    retry.hidden = value.state !== 'failed';
+    notifications.setOffline(value);
     drawState();
   }
-  retry.addEventListener('click', retryOffline);
+
+  function setPages(open, restoreFocus = false) {
+    pages.classList.toggle('is-open', open);
+    pagesToggle.setAttribute('aria-expanded', String(open));
+    if (open) (find('.nav.active') || find('.nav')).focus({preventScroll:true});
+    else if (restoreFocus) pagesToggle.focus({preventScroll:true});
+  }
+  pagesToggle.addEventListener('click', () => setPages(!pages.classList.contains('is-open')));
+  pages.addEventListener('click', event => {
+    if (pages.classList.contains('is-open') && event.target.closest('[data-route]')) setPages(false, true);
+  });
+  pages.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && pages.classList.contains('is-open')) { event.preventDefault(); setPages(false, true); }
+  });
+  pages.addEventListener('focusout', event => {
+    if (event.relatedTarget && !pages.contains(event.relatedTarget) && pages.classList.contains('is-open')) setPages(false);
+  });
 
   function closeMenu(restoreFocus = false) {
     if (menu.hidden) return;
@@ -151,7 +166,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
       if (menu.hidden) { button.remove(); buttons.delete(port); }
       else button.disabled = true;
     }
-    for (const {port, label, remembered} of choices) {
+    for (const {port, label, key, remembered} of choices) {
       let button = buttons.get(port);
       if (!button) {
         button = document.createElement('button');
@@ -161,15 +176,16 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
       }
       button.disabled = false;
       button.setAttribute('aria-checked', String(catalog.selected === port));
-      write(button, label + (remembered ? ' · Last connected' : ''));
-      button.title = label;
+      write(button, label + (key ? ' · ' + key : '') + (remembered ? ' · Last connected' : ''));
+      button.title = button.textContent;
     }
     empty.hidden = Boolean(choices.length);
     empty.textContent = catalog.serial ? 'No granted USB ports' : 'Web Serial is unavailable in this browser';
     const selected = choices.find(choice => choice.port === catalog.selected);
     const label = selected?.label || 'USB ports';
     write(endpoint.firstElementChild, label);
-    endpoint.title = selected ? label + (selected.remembered ? ' · Last connected' : '') : 'Choose a USB port';
+    endpoint.title = selected ? [label, selected.key, selected.remembered && 'Last connected'].filter(Boolean).join(' · ') : 'Choose a USB port';
+    endpoint.setAttribute('aria-label', selected ? 'Choose USB port · ' + label : 'Choose USB port');
     addPort.disabled = !catalog.serial;
   }
 
@@ -189,7 +205,10 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     try { await catalog.choose(); }
     catch (error) { if (error.name !== 'NotFoundError') notice(error.message); }
   });
-  const closeOutside = event => { if (!usbWrap.contains(event.target)) closeMenu(); };
+  const closeOutside = event => {
+    if (!usbWrap.contains(event.target)) closeMenu();
+    if (pages.classList.contains('is-open') && !pages.contains(event.target)) setPages(false);
+  };
   document.addEventListener('pointerdown', closeOutside);
   usbWrap.addEventListener('focusout', event => {
     if (event.relatedTarget && !usbWrap.contains(event.relatedTarget)) closeMenu();
@@ -217,7 +236,12 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     routePill.dataset.tone = live ? 'good' : busy || state === 'stale' ? 'warn' : state === 'error' ? 'bad' : 'idle';
     const arm = armCaption(lastCtx?.snapshot?.status, lastCtx?.group?.(130,500), live && !replay);
     if (lastArmStatus !== arm) {
-      lastArmStatus = arm; write(armPill, arm);
+      lastArmStatus = arm;
+      write(armPill.firstElementChild, arm);
+      const compactArm = {'ARM LOCKED · SETUP':'LOCKED', 'ARM UNAVAILABLE · SETUP':'NO SETUP', 'ARMED · DISARM REQUIRED':'ARMED', 'ARM UNKNOWN':'ARM ?'};
+      write(armPill.lastElementChild, compactArm[arm] || arm);
+      armPill.title = arm;
+      armPill.setAttribute('aria-label', arm);
       armPill.dataset.armed = String(arm.startsWith('ARMED'));
     }
     write(primary, flashing ? 'Flashing…' : busy ? 'Connecting…' : live || state === 'stale' ? 'Reconnect' : 'Connect');
@@ -230,16 +254,15 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     apAddress.disabled = flashing || open || pending || !!probe || !!apIssue;
     scan.hidden = !ap;
     scan.disabled = flashing || open || pending || !!probe || !!apIssue;
-    write(scan, probe ? 'Finding…' : 'Find kit');
+    const scanLabel = probe ? 'Finding…' : 'Find kit';
+    write(scan.lastElementChild, scanLabel);
+    scan.setAttribute('aria-label', scanLabel);
     usbWrap.hidden = ap; apAddress.hidden = !ap;
     const linkHint = issue || (ap && !open ? scanMessage || 'Join the kit in your computer’s Wi-Fi settings, then find it or connect.' : '');
-    const offlineHint = ['unavailable', 'failed', 'update'].includes(offline.state) ? offline.detail : '';
-    const showStandalone = access.embedded && !!(issue || offlineHint);
-    const help = [linkHint, offlineHint].filter(Boolean).join(' ');
-    write(hint, help);
-    apInfo.hidden = !help;
-    standalone.hidden = !showStandalone;
-    if (showStandalone && standalone.href !== location.href) standalone.href = location.href;
+    const offlineIssue = ['unavailable','failed','update'].includes(offline.state);
+    notifications.setConnection(linkHint, !!issue || (!!scanMessage && !probe),
+      access.embedded && !!(issue || offlineIssue));
+    if (primary.title !== (issue || '')) primary.title = issue || '';
     if (ap || endpoint.disabled) closeMenu();
   }
 
@@ -332,7 +355,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
   document.addEventListener('visibilitychange', refresh);
   window.addEventListener('focus', refresh);
   const poll = setInterval(refresh, 3000);
-  drawPorts(); drawState(); void catalog.scan();
+  drawPorts(); setOffline(offline); void catalog.scan();
   return {
     setOffline,
     get connectionPending() { return pending || !!probe; },
@@ -362,7 +385,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     },
     toggle() { return OPEN.has(state) ? end() : begin(); },
     destroy() {
-      clearInterval(poll); catalog.destroy();
+      clearInterval(poll); catalog.destroy(); notifications.destroy();
       window.removeEventListener('focus',refresh);
       document.removeEventListener('visibilitychange', refresh);
       probe?.abort();
