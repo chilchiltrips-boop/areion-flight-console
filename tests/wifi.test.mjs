@@ -169,3 +169,21 @@ test('late poll data and stale writes are dropped while later fresh traffic uses
   port.write(Uint8Array.from([36,10]));assert.equal(ws.frames.at(-1)[4],44);
   assert.equal(port.timing.dropped_writes,1);assert.equal(port.timing.late_polls,1);reader.releaseLock();
 });
+
+test('one missing gateway reply is polled again on the same socket; its late data and ticket are ignored',async t=>{
+  const original=globalThis.WebSocket;globalThis.WebSocket=Socket;t.after(()=>{globalThis.WebSocket=original;});
+  const port=new WifiPort();const opening=port.open(),ws=Socket.instance;t.after(()=>port.close());
+  ws.up();ws.reply(1,50);await opening;
+  while(!port.pending)await new Promise(resolve=>setTimeout(resolve,5));
+  const missed=port.pending.id;port.pending.at-=250;
+  while(port.pending.id===missed)await new Promise(resolve=>setTimeout(resolve,5));
+  const next=port.pending.id;
+  ws.reply(next,52,[3,4]);ws.reply(missed,51,[9,9]);
+  assert.equal(ws.readyState,1);assert.equal(port.credit.value,52);
+  const reader=port.readable.getReader();
+  assert.deepEqual([...(await reader.read()).value],[3,4]);
+  while(!port.pending)await new Promise(resolve=>setTimeout(resolve,5));
+  ws.reply(port.pending.id,53,[5,6]);assert.deepEqual([...(await reader.read()).value],[5,6]);
+  assert.equal(port.timing.poll_retries,1);assert.ok(ws.frames.every(frame=>frame[0]===80));
+  reader.releaseLock();
+});

@@ -197,22 +197,26 @@ export class UsbTelemetry {
     return run.port.writeFresh ? run.port.writeFresh(payload) : run.writer.write(payload);
   }
 
-  write(run,frame) {
+  write(run,frame,controlResult) {
     const request=run.pending?.frame===frame?run.pending:null;
     run.writing=true;
     run.writeDone=bounded(this.writeFrame(run,frame),1100,run.label+' write timed out.')
-      .then(()=>{if(this.current===run)this.traffic('tx',frame.length,now());})
+      .then(()=>{
+        if(this.current!==run || run.closing)return;
+        this.traffic('tx',frame.length,now());
+        controlResult?.(true);
+      })
       .catch(error=>{
         if(this.current!==run || run.closing)return;
         if(error.code!=='AP_FRAME_DROPPED'){void this.stop(run,'error',run.label+' write failed. '+error.message);return;}
-        if(request && run.pending===request){
+        if(controlResult){
+          // The next 50 Hz tick samples the sticks again. This says nothing about link or FC state.
+          controlResult(false,error.message);
+        } else if(request && run.pending===request){
           if(request.resolve)this.finish(run,error);
           else if(request.type==='READ' && !run.verifying){
             run.reads.unshift(request.group);run.retryReadAt=now()+150;this.finish(run);
           }
-        } else if(!request && run.fc){
-          run.neutralSince=null;run.lastControl=null;
-          this.report('stale','AP control frame expired. Sender stopped.');
         }
       })
       .finally(()=>{
@@ -297,7 +301,7 @@ export class UsbTelemetry {
   saveGroup(group,options) {return this.rpc('SAVE',group,[],options);}
   action(group,values,options) {return this.rpc('ACTION',group,values,options);}
 
-  sendControl(values) {
+  sendControl(values,onSent) {
     if (this.firmwareMaintenance) throw fail('USB firmware transfer in progress.','FLASH_BUSY');
     const run=this.current;
     if(!run?.fc || this.state!=='connected')throw fail('No confirmed control connection.');
@@ -305,15 +309,19 @@ export class UsbTelemetry {
     const {ready,status}=this.controlState(run);
     const neutral=values[2]===1000 && [0,1,3].every(i=>values[i]===1500);
     if(!ready && (status[0] || !neutral))throw fail('The controller is waiting for neutral input.');
-    // An unsent stick position is dropped rather than queued behind an older USB frame.
+    // Sample again on the next tick if the writer is busy.
     if(run.writing || run.pending?.sent===null || run.pending?.priority)return false;
-    const at=now(), last=run.lastControl;
-    const low=values[2]<(run.latest.get(4)?.values?.[0]??1050) && [0,1,3].every(i=>Math.abs(values[i]-1500)<=100);
-    run.neutralSince=low?(last && at-last.at<150?(run.neutralSince??at):at):null;
-    run.lastControl={at,values:[...values]};
+    const at=now(), channels=[...values];
     run.controlSeq=nextSeq(run.controlSeq);
-    this.write(run,frame);
-    this.onResult({kind:'control',group:9,name:'TX channels',status:'submitted',values:[...values]},run);
+    this.write(run,frame,(sent,detail)=>{
+      this.onResult({kind:'control',group:9,name:'TX channels',status:sent?'sent':'dropped',detail,values:channels},run);
+      if(!sent || run.pending?.priority)return;
+      const last=run.lastControl, low=channels[2]<(run.latest.get(4)?.values[0]??1050)
+        && [0,1,3].every(i=>Math.abs(channels[i]-1500)<=100);
+      run.neutralSince=low?(last && at-last.at<150?(run.neutralSince??at):at):null;
+      run.lastControl={at,values:channels};
+      onSent?.();
+    });
     return true;
   }
 

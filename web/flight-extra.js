@@ -65,7 +65,7 @@ export function mountFlightExtra(root){
   try{const stored=JSON.parse(localStorage.getItem(keyStorage));if(validKeys(stored))bindings=stored;}catch{}
   const controls=new Controls(bindings);
   let ctx=null,saving=false,dirty=false,savedSource=null,model=null,lastSource=null;
-  let zero=0,prevTime=null,prevStamp=null,lastYaw=null,mapView=false,keyboardOnly=false,readEpoch=0;
+  let zero=0,prevTime=null,prevStamp=null,lastYaw=null,mapView=false,keyboardOnly=false,savedRead=null;
   let retrySavedAt=Infinity;
   const sender = new CockpitSender(controls,()=>ctx,reason=>{
     message(reason);
@@ -158,29 +158,34 @@ export function mountFlightExtra(root){
     try{localStorage.setItem(keyStorage,JSON.stringify(arr));}catch{message('Using bindings for this session.');}
     controls.keys=arr;controls.reset();keysDialog.close();
   }
+  function cancelSavedRead(){
+    savedRead?.abort();savedRead=null;
+  }
   function inspectSaved(c){
-    const epoch=++readEpoch,link=c.link, owner=link?.session;
+    cancelSavedRead();
+    const link=c.link,owner=link?.session;
     savedSource=null;retrySavedAt=Infinity;
-    if(!owner||!link?.readGroup||c.replay||c.state!=='connected')return;
-    link.readGroup(134,{saved:true}).then(saved=>{
-      if(readEpoch!==epoch||ctx?.link!==link||link.session!==owner)return;
+    if(!owner||!link?.readGroup||c.replay||c.state!=='connected'||saving||sender.running)return;
+    const request=savedRead=new AbortController();
+    link.readGroup(134,{saved:true,signal:request.signal}).then(saved=>{
+      if(request.signal.aborted||ctx?.link!==link||link.session!==owner)return;
       savedSource=saved?.[1]??null;
       if(!dirty && savedSource!=null)input.value=String(savedSource);
     }).catch(error=>{
-      if(epoch===readEpoch && ['BUSY','CANCELLED','EXPIRED'].includes(error.code))retrySavedAt=clock()+1200;
-    });
+      if(!request.signal.aborted && ['BUSY','CANCELLED','EXPIRED','AP_FRAME_DROPPED'].includes(error.code))retrySavedAt=clock()+1200;
+    }).finally(()=>{if(savedRead===request)savedRead=null;});
   }
   async function saveSource(){
     if(saving||!ctx||ctx.replay||sender.running||ctx.state!=='connected'||ctx.group(120,500)?.[0]!==false)return;
     const c=ctx,source=Number(input.value);
-    ++readEpoch;
+    cancelSavedRead();
     saving=true;
     try{
       await c.saveInput(source);
       if(ctx?.model!==c.model)return;
       dirty=false;savedSource=source;controls.reset();message('Active and saved input verified · '+SOURCES[source]);
     }catch(e){if(ctx?.model===c.model)message(e.message);}
-    finally{saving=false;}
+    finally{saving=false;if(ctx?.model===c.model && savedSource==null)retrySavedAt=clock();}
   }
   root.addEventListener('click',async e=>{
     const name=e.target.closest('[data-do]')?.dataset.do;if(!name)return;
@@ -194,7 +199,10 @@ export function mountFlightExtra(root){
       case 'save-input':await saveSource();break;
       case 'send':
         if(sender.running)stopActive('Sender stopped.');
-        else if(!mapView){try{sender.start();}catch(error){message(error.message);}}
+        else if(!mapView){
+          cancelSavedRead();if(savedSource==null)retrySavedAt=clock();
+          try{sender.start();}catch(error){message(error.message);}
+        }
         break;
       case 'arm':
         try{await sender.arm();if(sender.running)message('FC armed · status verified.');}
@@ -275,7 +283,7 @@ export function mountFlightExtra(root){
     }
     buttons.send.disabled=!sender.running&&(!g.canStart||saving);text(buttons.send,sender.running?'Stop sender':'Start sender · 50 Hz');
     buttons.arm.disabled=!sender.canArm(now);buttons.map.disabled=check.disabled=sender.running;
-    value('sender',sender.running?(sender.ready?(sender.rate?sender.rate.toFixed(1)+' Hz · READY':'SENDER READY'):'NEUTRAL'):'SENDER OFF');
+    value('sender',sender.running?(sender.ready?(sender.rate?sender.rate.toFixed(1)+' Hz · READY':'SENDER READY'):'Waiting for FC input'):'SENDER OFF');
     buttons.zero.disabled=lastYaw==null;
     value('yaw',signed(yaw));value('ROLL',signed(imu?.roll));value('PITCH',signed(imu?.pitch));value('TILT',imu?tilt(imu.roll,imu.pitch).toFixed(1)+'°':'—');
     value('armed',status?(status[0]?'ARMED':'DISARMED'):'ARM —');values.armed.dataset.armed=status?String(status[0]):'';

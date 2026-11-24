@@ -37,7 +37,7 @@ export class WifiPort {
     this.socket = null;
     this.readable = this.writable = null;
     this.readController = null;
-    this.timing = {late_polls:0, dropped_writes:0, last_rtt_ms:0, max_rtt_ms:0};
+    this.timing = {late_polls:0, poll_retries:0, dropped_writes:0, last_rtt_ms:0, max_rtt_ms:0};
     this.pending = null;
     this.serial = 0;
     this.credit = null;
@@ -58,6 +58,7 @@ export class WifiPort {
     this.writable = new WritableStream({write: bytes => this.write(bytes)});
     return new Promise((resolve, reject) => {
       let ready = false, lastReply = performance.now(), lastReport = -Infinity;
+      const retiredPolls = new Set();
       const fail = message => {
         if (socket !== this.socket) return;
         this.shutdown(new Error(message));
@@ -68,7 +69,16 @@ export class WifiPort {
         if (socket.readyState !== WebSocket.OPEN) return;
         const now = performance.now();
         if (ready && now-lastReply>GATEWAY_SILENCE_MS) return fail('No gateway reply for 3 s. Reconnect the kit.');
-        if (this.pending || socket.bufferedAmount>MAX_FRAME) return;
+        if (socket.bufferedAmount>MAX_FRAME) return;
+        if (this.pending) {
+          if (now-this.pending.at<=MAX_ROUND_TRIP_MS) return;
+          // An unanswered telemetry poll must not block every subsequent poll on an open socket.
+          retiredPolls.add(this.pending.id);
+          if(retiredPolls.size>Math.ceil(GATEWAY_SILENCE_MS/MAX_ROUND_TRIP_MS))
+            retiredPolls.delete(retiredPolls.values().next().value);
+          this.credit=null;
+          this.timing.poll_retries++;
+        }
         this.serial = (this.serial + 1) >>> 0;
         this.pending = {id:this.serial, at:now};
         try { socket.send(header(POLL, this.serial)); } catch { fail('AP Wi-Fi disconnected.'); }
@@ -85,8 +95,10 @@ export class WifiPort {
         if (socket !== this.socket) return;
         if (!(data instanceof ArrayBuffer) || data.byteLength < 9 || data.byteLength > 9 + MAX_FRAME * 4)
           return fail('Invalid browser AP response.');
-        const view = new DataView(data), pending = this.pending;
-        if (view.getUint8(0) !== REPLY || !pending || view.getUint32(1) !== pending.id)
+        const view = new DataView(data), pending = this.pending, id = view.getUint32(1);
+        if (view.getUint8(0) !== REPLY) return fail('Unexpected browser AP response.');
+        if (retiredPolls.delete(id)) return;
+        if (!pending || id !== pending.id)
           return fail('Unexpected browser AP response.');
         const now = performance.now();
         const ticket = view.getUint32(5);

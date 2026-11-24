@@ -4,10 +4,12 @@ import {Worker} from 'node:worker_threads';
 import {setTimeout as delay} from 'node:timers/promises';
 import {ApSessionPort} from '../web/ap-session-port.js';
 import {UsbTelemetry} from '../web/usb.js';
+import {CockpitSender,Controls} from '../web/cockpit-controls.js';
+import {Instruments} from '../web/instruments.js';
 
-function fixture() {
+function fixture(options) {
   const history=[];
-  const native=new Worker(new URL('./fixtures/ap-worker-kit.mjs',import.meta.url));
+  const native=new Worker(new URL('./fixtures/ap-worker-kit.mjs',import.meta.url),{workerData:options});
   const bridge={postMessage:msg=>native.postMessage(msg),terminate:()=>native.terminate()};
   native.on('message',msg=>msg.audit ? history.push(msg) : bridge.onmessage?.({data:msg}));
   native.on('error',error=>bridge.onerror?.(error));
@@ -84,6 +86,35 @@ test('explicit AP disconnect releases ownership and stops polling without reconn
   await until(()=>link.state==='connected');await link.disconnect();
   assert.equal(history.filter(e=>e.audit==='request').at(-1).command,'RELEASE');
   assert.equal(port.worker,null);assert.equal(link.state,'offline');
+});
+
+test('Flight Data starts on AP, survives dropped joystick samples and receives the next stick position over Link v2',async t=>{
+  const {port,native,history}=fixture({flight:true}),model=new Instruments(),states=[],results=[],stops=[];
+  const link=new UsbTelemetry({onStatus:s=>states.push(s.state),onData:r=>model.push(r),onResult:r=>results.push(r)});
+  const controls=new Controls(),ctx={path:'AP',model,link,get state(){return link.state;}};
+  const sender=new CockpitSender(controls,()=>ctx,reason=>stops.push(reason));
+  t.after(async()=>{sender.stop();await link.disconnect();await native.terminate();});
+  await link.connect(port,{source:1});await until(()=>model.frames.has(122)&&model.frames.has(130));
+  const owner=link.session,write=port.writeFresh.bind(port),decoder=new TextDecoder();
+  let count=0,skipRoll=0;
+  port.writeFresh=frame=>{
+    if(decoder.decode(frame.bytes).includes('"type":"CONTROL"') && (count++<2 || skipRoll && controls.values[0]===skipRoll))
+      return write({...frame,issuedAt:frame.issuedAt-500});
+    return write(frame);
+  };
+  sender.start();await until(()=>sender.ready);
+  skipRoll=1900;controls.stick(false,.8,0,true);
+  await until(()=>results.some(r=>r.status==='dropped'&&r.values?.[0]===1900));
+  controls.stick(false,.4,-.25,true);
+  native.postMessage({test:'delay-poll',ms:187});
+  await until(()=>port.timing?.max_rtt_ms>=175 || port.timing?.poll_retries>0);
+  await until(()=>model.frames.get(22)?.values[0]===1700 && sender.rate>0);
+  assert.deepEqual(model.frames.get(22).values.slice(0,4),[1700,1375,1000,1500]);
+  assert.ok(sender.running&&sender.ready);assert.deepEqual(stops,[]);assert.equal(link.session,owner);
+  assert.deepEqual(states,['opening','handshake','connected']);
+  assert.ok(results.some(r=>r.kind==='control'&&r.status==='sent'&&r.values[0]===1700));
+  assert.ok(!history.some(r=>r.command==='ACTION'||r.channels?.[0]===1900));
+  assert.equal(history.filter(r=>r.command==='HELLO').length,1);
 });
 
 test('cancelling while the gateway is opening also settles the connect operation',async t=>{

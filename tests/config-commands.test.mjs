@@ -112,7 +112,7 @@ test('a saved kit accepts an explicit Flight Data test over its selected USB or 
       if(group!==123)return configAction(group,values);
       assert.deepEqual(values,['ARM']);armedCommands++;active[120][0]=true;return ['ARMED'];
     };
-    link.sendControl=v=>{calls.push([...v]);return true;};
+    link.sendControl=(v,sent)=>{calls.push([...v]);sent();return true;};
     const start=performance.now()-270,rows=new Map();
     const ctx={state:'connected',path,link,replay:false,model:{frames:rows,
       get(id,now,age){const r=rows.get(id);return r&&now>=r.at&&now-r.at<age?r.values:null;}}};

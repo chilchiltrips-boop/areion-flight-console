@@ -27,7 +27,7 @@ export function currentGuard(ctx,now) {
   const lockClear=setup?.[1]===true&&setup[0]===false&&!setup[8];
   const receipt=read(136,500);
   const pidSaved=receipt?.[0]===false && Number.isInteger(receipt[1]) && receipt[1]===receipt[2] && receipt[3]==='';
-  return {setup,status,input,source,route,ready,lockClear,pidSaved,canStart:Boolean(route&&lockClear&&status?.[0]===false)};
+  return {setup,status,input,source,route,ready,timeout,lockClear,pidSaved,canStart:Boolean(route&&lockClear&&status?.[0]===false)};
 }
 // The receiver selection and the transport used to view telemetry are independent.
 export function transmitterView(ctx,guard,selected) {
@@ -47,7 +47,8 @@ export class CockpitSender {
     if(this.running||!guard.canStart)throw Error('Select this link as flight input and complete setup on the disarmed kit.');
     this.controls.reset();
     this.abort=new AbortController();this.running=true;this.ready=false;this.everArmed=false;
-    this.link=ctx.link;this.owner=ctx.link.session;this.model=ctx.model;this.started=now;this.previous=now;this.lastSent=now;
+    this.link=ctx.link;this.owner=ctx.link.session;this.model=ctx.model;this.started=now;this.previous=now;
+    this.firstSent=this.lastSent=null;
     this.rateSince=now;this.sent=0;this.rate=0;
     this.timer=setInterval(()=>this.tick(performance.now()),20);
     this.tick(now);
@@ -58,18 +59,28 @@ export class CockpitSender {
     try {
       if(c?.link!==this.link||c?.link.session!==this.owner||c?.model!==this.model||!g.route||!g.lockClear||!g.status)
         throw Error('Control link or setup state changed.');
-      if(now-this.previous>150||now-this.lastSent>150)throw Error('Channel sender timed out.');
-      this.previous=now;
       if(this.everArmed&&!g.status[0])throw Error('FC disarmed.');
       this.everArmed||=g.status[0];
+      const ap=g.source===1, timeout=ap?g.timeout:150;
+      const gap=now-this.previous>=timeout || now-(this.lastSent??this.started)>=timeout;
+      this.previous=now;
+      if(ap&&!this.everArmed&&!this.arming){
+        // A disarmed FC accepts neutral frames to qualify the selected input again.
+        if(this.ready&&(gap||!g.ready)){
+          this.controls.reset();this.ready=false;this.started=now;this.firstSent=this.lastSent=null;
+        }
+      }else if(gap)throw Error('Channel sender timed out.');
       if(!this.ready){
-        if(now-this.started>1000)throw Error('FC did not confirm neutral input.');
+        if(!ap&&now-this.started>1000)throw Error('FC did not confirm neutral input.');
         const row=c.model.frames.get(122);
-        if(now-this.started>=250&&row?.at>this.started&&now-row.at<250&&g.ready)this.ready=true;
+        if(this.firstSent!==null && row?.at>this.firstSent && now-row.at<(ap?timeout:250)
+           && (ap||now-this.started>=250) && g.ready)this.ready=true;
       }else if(!g.ready)throw Error('Receiver no longer ready.');
-      if(this.link.sendControl(this.ready?this.controls.values:NEUTRAL)){
-        this.lastSent=now;this.sent++;
-      }
+      const signal=this.abort.signal;
+      this.link.sendControl(this.ready?this.controls.values:NEUTRAL,()=>{
+        if(signal.aborted||now<this.started)return;
+        this.firstSent??=now;this.lastSent=now;this.sent++;
+      });
       if(now-this.rateSince>=1000){this.rate=this.sent*1000/(now-this.rateSince);this.sent=0;this.rateSince=now;}
     }catch(e){this.stop();this.onStop(e.message);}
   }

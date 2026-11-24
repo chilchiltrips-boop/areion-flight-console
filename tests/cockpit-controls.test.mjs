@@ -22,10 +22,10 @@ test('flight modes use actual low/high mapping, yaw wraps and tilt includes inve
 });
 function kit(){
   const rows=new Map(),packets=[],group=(id,now,age)=>{const r=rows.get(id);return r&&now>=r.at&&now-r.at<=age?r.values:null;};
-  const ctx={state:'connected',path:'USB',replay:false,link:{session:55,sendControl(v){packets.push([...v]);return true;}},model:{frames:rows,get:group}};
+  const ctx={state:'connected',path:'USB',replay:false,link:{session:55,sendControl(v,sent){packets.push([...v]);sent();return true;}},model:{frames:rows,get:group}};
   let ready=false;
   function put(at,source=2,owner=55,armed=false,lock=false){
-    rows.set(122,{at,values:[source,ready?source+1:0,false,false,ready,ready?8:0,20,owner,ready]});
+    rows.set(122,{at,values:[source,ready?source+1:0,false,ready&&source===1,ready,ready?8:0,20,owner,ready&&source===2]});
     rows.set(120,{at,values:[armed,true,true,8,.004,2000,20,true,false,false]});
     rows.set(130,{at,values:[lock,!lock]});
     rows.set(136,{at,values:[false,2,2,'']});
@@ -53,6 +53,30 @@ test('sender refuses a replay and stops on a delayed UI tick instead of catching
   try{
     k.ctx.replay=true;assert.throws(()=>tx.start(0));k.ctx.replay=false;
     tx.start(0);tx.tick(180);assert.equal(tx.running,false);assert.equal(k.packets.length,1);
+  }finally{tx.stop();}
+});
+test('a disarmed AP sender waits for FC confirmation, resumes at neutral and follows the configured digital timeout',()=>{
+  const k=kit(),c=new Controls(),errors=[],tx=new CockpitSender(c,()=>k.ctx,reason=>errors.push(reason));
+  k.ctx.path='AP';
+  const sample=at=>k.put(at,1);
+  const send=k.ctx.link.sendControl;let skip=true;
+  k.ctx.link.sendControl=(v,sent)=>skip?true:send(v,sent);
+  try{
+    sample(0);tx.start(0);k.qualify();
+    for(let at=20;at<=1200;at+=20){sample(at);tx.tick(at);}
+    assert.equal(tx.running,true);assert.equal(tx.ready,false);
+    skip=false;sample(1220);tx.tick(1220);assert.equal(tx.ready,false);
+    sample(1240);tx.tick(1240);assert.equal(tx.ready,true);
+    k.rows.set(112,{at:1240,values:[250,300]});
+    c.stick(false,.5,0,true);sample(1427);tx.tick(1427);
+    assert.equal(k.packets.at(-1)[0],1750);
+    sample(1740);tx.tick(1740);
+    assert.equal(tx.ready,false);assert.deepEqual(k.packets.at(-1),NEUTRAL);
+    sample(1760);tx.tick(1760);assert.equal(tx.ready,true);
+    assert.deepEqual(k.packets.at(-1),NEUTRAL);assert.deepEqual(errors,[]);
+    k.put(1780,1,55,true);tx.tick(1780);
+    k.put(2085,1,55,false);tx.tick(2085);assert.equal(tx.running,false);
+    assert.match(errors[0],/disarmed/);
   }finally{tx.stop();}
 });
 test('cancelling the sender while ARM checks are pending sends no subsequent ARM request',async()=>{

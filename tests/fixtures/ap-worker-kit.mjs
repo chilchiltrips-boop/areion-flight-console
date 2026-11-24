@@ -1,13 +1,14 @@
-import {parentPort} from 'node:worker_threads';
+import {parentPort,workerData} from 'node:worker_threads';
 import {crc32} from 'node:zlib';
 
 const encoder = new TextEncoder(), fc = 8451, credit = 142;
+const neutral=[1500,1500,1000,1500,1000,1000,1000,1000];
+const setup=[false,true,7,4,15,true,true,false,false,1100,1100,1100,1100,1,'','A1_TEST'];
 function packet(message) {
   const json = JSON.stringify(message), bytes = encoder.encode(json);
   return encoder.encode('$'+bytes.length+':'+json+'*'+crc32(bytes).toString(16).toUpperCase().padStart(8,'0')+'\n');
 }
 
-// The fixture enforces the shipping gateway's maximum interval between polls.
 class KitSocket {
   static OPEN=1; static CONNECTING=0;
   constructor(url,protocol) {
@@ -18,13 +19,25 @@ class KitSocket {
     parentPort.postMessage({audit:'socket'});
     queueMicrotask(()=>{this.readyState=1;this.onopen();});
   }
+  flightSamples(now){
+    const age=this.channels?Math.floor(now-this.lastControl):0xffffffff, ready=age<250;
+    const groups=[
+      [120,[false,true,true,ready?8:0,.004,2000,1,true,true,true]],
+      [122,[1,ready?2:0,false,ready,ready,ready?8:0,age,this.owner,false]],
+      [130,setup],[22,ready?this.channels:neutral]
+    ];
+    for(const [group,data] of groups.slice(0,4-this.replies.length)){
+      this.replies.push(packet({v:2,type:'DATA',group,schema:group===122?2:1,session:fc,seq:++this.sequence,data}));
+    }
+  }
   send(frame) {
     const id=new DataView(frame.buffer,frame.byteOffset).getUint32(1);
     if(frame[0]===80) {
       const now=performance.now();
-      if(now-this.last>250)return this.drop();
+      if(!workerData?.flight&&now-this.last>250)return this.drop();
       this.last=now;
-      if(this.connected)this.replies.push(packet({v:2,type:'DATA',group:22,schema:1,session:fc,seq:++this.sequence,
+      if(this.connected&&workerData?.flight)this.flightSamples(now);
+      else if(this.connected)this.replies.push(packet({v:2,type:'DATA',group:22,schema:1,session:fc,seq:++this.sequence,
         data:[1500,1500,1010,1500,1000,1000,1500,1500]}));
       const view=new Uint8Array(9+this.replies.reduce((n,r)=>n+r.length,0));
       const head=new DataView(view.buffer);
@@ -32,18 +45,26 @@ class KitSocket {
       let i=9;for(const r of this.replies){view.set(r,i);i+=r.length;}
       this.replies=[];
       parentPort.postMessage({audit:'poll',time:now});
-      queueMicrotask(()=>this.onmessage?.({data:view.buffer}));
+      const deliver=()=>this.onmessage?.({data:view.buffer});
+      if(this.delayPoll){setTimeout(deliver,this.delayPoll);this.delayPoll=0;}
+      else queueMicrotask(deliver);
       return;
     }
     if(frame[0]!==70 || id!==credit)throw Error('Gateway rejected credit');
     const wire=new TextDecoder().decode(frame.subarray(5));
     const msg=JSON.parse(wire.slice(wire.indexOf(':')+1,-10));
-    parentPort.postMessage({audit:'request',command:msg.type});
+    parentPort.postMessage({audit:'request',command:msg.type,...(msg.type==='CONTROL'?{channels:msg.data}:{})});
     const reply=(type,data)=>this.replies.push(packet({...msg,type,data}));
-    if(msg.type==='HELLO'){this.connected=true;reply('ACK',['HELLO',fc]);}
+    if(msg.type==='HELLO'){this.connected=true;this.owner=msg.session;reply('ACK',['HELLO',fc]);}
+    else if(msg.type==='CONTROL'&&msg.group===9&&msg.session===this.owner){
+      const now=performance.now();
+      if(now-this.lastControl<250||msg.data.slice(0,4).every((v,i)=>v===neutral[i])){
+        this.channels=msg.data;this.lastControl=now;
+      }
+    }
     else if(msg.type==='PING')reply('ACK',['PONG']);
     else if(msg.type==='READ' && msg.group===130)
-      reply('DATA',[false,true,7,4,15,true,true,false,false,1100,1100,1100,1100,1,'','A1_TEST']);
+      reply('DATA',setup);
     else if(msg.type==='READ' && msg.group===110)reply('DATA',[1]);
     else if(msg.type==='READ')reply('ERROR',['UNAVAILABLE']);
   }
@@ -56,5 +77,6 @@ globalThis.self = {postMessage:(value,transfer)=>parentPort.postMessage(value,tr
 await import('../../web/ap-worker.js');
 parentPort.on('message',data=>{
   if(data.test==='radio-loss')KitSocket.instance.drop();
+  else if(data.test==='delay-poll')KitSocket.instance.delayPoll=data.ms;
   else self.onmessage({data});
 });
