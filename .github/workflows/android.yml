@@ -99,7 +99,7 @@ jobs:
             adb shell svc wifi disable
             adb shell svc data disable
             adb logcat -c
-            adb shell am instrument -w -e requireOffline true in.zebjus.areion.console.preview.test/in.zebjus.areion.AreionTouchInstrumentation | tee device-result.txt
+            adb shell am instrument -w -r -e requireOffline true in.zebjus.areion.console.preview.test/in.zebjus.areion.AreionTouchInstrumentation | tee device-result.txt
             adb logcat -b crash -d | tee device-crash.txt
             adb logcat -d -t 2200 > device-log.txt
             adb shell dumpsys activity exit-info in.zebjus.areion.console.preview > device-exit.txt
