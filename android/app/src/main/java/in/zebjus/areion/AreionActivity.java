@@ -42,12 +42,12 @@ public class AreionActivity extends Activity {
     protected void onCreate(Bundle savedState) {
         super.onCreate(savedState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        immersive();
         export = new DocumentExport(this);
         gateway = new KitGateway(getApplicationContext(), this::socketEvent);
         PackagedConsole site = new PackagedConsole(getAssets());
         browser = new WebView(this);
         setContentView(browser);
+        immersive();
         WebSettings settings = browser.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
