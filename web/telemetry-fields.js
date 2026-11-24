@@ -19,6 +19,7 @@ export const fields = new Map([
   [132,["RX_CALIBRATION",["CH1Min","CH1Center","CH1Max","CH1Reverse","CH2Min","CH2Center","CH2Max","CH2Reverse","CH3Min","CH3Center","CH3Max","CH3Reverse","CH4Min","CH4Center","CH4Max","CH4Reverse","CH5Min","CH5Center","CH5Max","CH5Reverse","CH6Min","CH6Center","CH6Max","CH6Reverse","CH7Min","CH7Center","CH7Max","CH7Reverse","CH8Min","CH8Center","CH8Max","CH8Reverse"]]],
   [134,["SETUP_CONFIG",["Profile","BootSource","RollChannel","PitchChannel","ThrottleChannel","YawChannel","DeadbandUs","MotorIdle1","MotorIdle2","MotorIdle3","MotorIdle4"]]],
   [135,["SETUP_ACTION",["Command","Arg0","Arg1","Arg2","Arg3"]]],
+  [141,["FIRMWARE_COMPONENTS",["Board","LinkLibraryVersion","PpmLibraryVersion","ApFirmwareUpdate"]]],
   [136,["PID_STATUS",["Pending","Revision","SavedRevision","Error"]]],
   [137,["PID_APPLY",["GroupId","BenchConfirmed","V0","V1","V2","V3","V4","V5","V6","V7","V8"]]],
 ]);

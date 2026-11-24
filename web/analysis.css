@@ -126,6 +126,7 @@
 .fw-field input::placeholder{color:#a7bbc5}.fw-field input:disabled{opacity:.7}
 .fw-check{display:flex;align-items:flex-start;gap:.5rem;font-size:.92rem;margin:1rem 0}
 .fw-check input{accent-color:#78dacc;margin-top:.2rem}
+.fw-info [data-sources]{color:#a3e4db;align-self:center}
 .fw-card progress{width:100%;height:.52rem;margin:.8rem 0 .2rem;accent-color:#78dacc}
 .fw-card .fw-primary{background:#81d9c9;color:#0a292a;font-weight:700;border-color:#81d9c9}
 .fw-network{background:#0e202b;padding:.7rem .85rem;margin:.8rem 0;justify-content:flex-start;gap:2rem}

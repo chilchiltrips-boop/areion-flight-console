@@ -1,4 +1,6 @@
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {basename,join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {board,imageMatchesBoard,layout,validateManifest} from '../web/firmware-release.js';
@@ -24,8 +26,18 @@ for (const [key,{address}] of Object.entries(layout)) {
     sha256:createHash('sha256').update(bytes).digest('hex'),md5:createHash('md5').update(bytes).digest('hex')};
   output.push([key+'.bin',bytes]);
 }
-validateManifest(manifest);
+manifest.libraries={};
+for(const name of ['ZebjusAreionLink','ZebjusPpm']){
+  const properties=await readFile(new URL('../firmware/libraries/'+name+'/library.properties',import.meta.url),'utf8');
+  manifest.libraries[name]=properties.match(/^version=(\d+\.\d+\.\d+)$/m)?.[1];
+}
+if(manifest.libraries.ZebjusAreionLink!==version)throw Error('Firmware and Link library versions differ.');
 await mkdir(out,{recursive:true});
+const archive='arduino-sources.zip';
+execFileSync(process.platform==='win32'?'python':'python3',[fileURLToPath(new URL('./firmware-sources.py',import.meta.url)),join(out,archive)]);
+const zipped=await readFile(join(out,archive));
+manifest.sources={file:archive,bytes:zipped.length,sha256:createHash('sha256').update(zipped).digest('hex')};
+validateManifest(manifest);
 for (const [name,bytes] of output) await writeFile(join(out,name),bytes);
 await writeFile(join(out,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
 console.log(board+' '+version+' packaged with four verified images.');

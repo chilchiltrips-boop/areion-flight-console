@@ -23,6 +23,7 @@ SOFTWARE.
 */
 // Zebjus PPM: independent PPM-SUM reader. Original implementation, MIT.
 #pragma once
+#define ZEBJUS_PPM_VERSION "1.0.1"
 #include <Arduino.h>
 #include <driver/rmt_rx.h>
 #include <freertos/FreeRTOS.h>

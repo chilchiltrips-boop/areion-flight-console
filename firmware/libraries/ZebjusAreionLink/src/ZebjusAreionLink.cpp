@@ -153,7 +153,7 @@ void ZebjusAreionLink::process() {
         continue;
       }
       const bool local = privateGroup(msg.group);
-      if (local && p.stream != privateUsb_) { ++rejected_; continue; }
+      if ((gatewayGroup_ && msg.group == gatewayGroup_) || (local && p.stream != privateUsb_)) { ++rejected_; continue; }
       auto response = engine_.handle(msg, now, p.decoder.lastFrame());
       syncOwnerRoutes();
       if (response.reply && local) {
@@ -172,7 +172,7 @@ void ZebjusAreionLink::process() {
     if (udp_.read(reinterpret_cast<uint8_t*>(&frame[0]), size_t(n)) != n) { ++rejected_; continue; }
     areion::Message msg;
     if (!areion::decodeFrame(frame, msg)) { ++rejected_; continue; }
-    if (privateGroup(msg.group)) { ++rejected_; continue; }
+    if (privateGroup(msg.group) || (gatewayGroup_ && msg.group == gatewayGroup_ && ip != IPAddress(127,0,0,1))) { ++rejected_; continue; }
     // RELEASE retries remain eligible after the releasing peer was removed.
     // The engine authenticates their session and exact-byte tombstone; a retry
     // never allocates a route or releases a newer owner.

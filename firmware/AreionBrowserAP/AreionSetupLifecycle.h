@@ -365,6 +365,7 @@ static bool areion_pid_flush_pending() {
   AreionPidRestoreCompletion=false;AreionPidError="";return true;
 }
 static areion::ActionResult areion_pid_action(const std::vector<areion::Value>& d,uint32_t now) {
+  if(areion_ota::busy())return {false,"FIRMWARE_UPDATE_ACTIVE"};
   if(d.size()!=11 || d[0].type!=areion::ValueType::Integer || d[1].type!=areion::ValueType::Boolean
      || (d[0].integer!=2 && d[0].integer!=3)) return {false,"PID_ACTION_DATA"};
   for(size_t i=2;i<11;++i) if(d[i].type!=areion::ValueType::Float || !std::isfinite(d[i].real)) return {false,"PID_ACTION_DATA"};
@@ -406,12 +407,14 @@ static areion::ActionResult areion_setup_action(const std::vector<areion::Value>
   const bool zeros=a==0 && b==0, confirm=a==1 && b==0;
   if(cmd=="STOP" || cmd=="MOTOR_STOP") {
     if(!zeros) return {false,"SETUP_UNUSED_ARGS"};
+    areion_ota::cancel();
     if(cmd=="MOTOR_STOP" && AreionEscState==2) return {false,"CALIBRATION_BUSY"};
     if(cmd=="STOP") {
       if(!areion_setup_cancel("ESC_CANCELLED")) return {false,"ESC_CANCEL_NOT_PERSISTED"};
     } else areion_setup_stop_motor();
     return {true,"STOPPED"};
   }
+  if(areion_ota::busy())return {false,"FIRMWARE_UPDATE_ACTIVE"};
   // Do not let a delayed MOTOR_SET insert MIN then resume HIGH, or let a
   // second schedule overwrite a completed sequence before IMU recovery.
   if(AreionEscBootMode) return {false,AreionEscState==2?"CALIBRATION_BUSY":"WAIT_FOR_IMU_STARTUP"};

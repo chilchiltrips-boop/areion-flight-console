@@ -39,6 +39,7 @@ static void areion_load_wifi(AreionWifiRecord& record) {
   AreionSavedSSID=AreionWifiConfigured?record.ssid:"";
 }
 static areion::ActionResult areion_wifi_change(const std::vector<areion::Value>& data,uint32_t) {
+  if (areion_ota::busy()) return {false,"FIRMWARE_UPDATE_ACTIVE"};
   if (Armed || AreionPidPending || AreionMotorTestActive || AreionEscBootMode || AreionEscState==1 || AreionEscState==2)
     return {false,"DISARM_AND_STOP_TESTS"};
   if (data.empty()) return {false,"AP_SETTINGS_INVALID"};

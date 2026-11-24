@@ -33,7 +33,7 @@ jobs:
         id: release
         with:
           path: build/firmware-release
-          key: areion-c6-core-3.3.7-${{ hashFiles('firmware/**', 'scripts/package-firmware.mjs', 'web/firmware-release.js') }}
+          key: areion-c6-core-3.3.7-${{ hashFiles('firmware/**', 'scripts/package-firmware.mjs', 'scripts/firmware-sources.py', 'web/firmware-release.js') }}
       - uses: arduino/setup-arduino-cli@v2
         if: steps.release.outputs.cache-hit != 'true'
       - name: Compile and package the Areion FC A1 release

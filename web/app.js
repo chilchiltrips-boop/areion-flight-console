@@ -147,7 +147,7 @@ async function disconnect() {
   await link.disconnect();
 }
 async function connect(mode, endpoint) {
-  if (firmwareBusy) throw Error('Firmware is using the USB port.');
+  if (firmwareBusy) throw Error('Firmware update in progress.');
   if (openStates.has(state)) return;
   dropReplay();
   notice('');
@@ -162,11 +162,12 @@ let firmwareBusy=false;
 async function withFirmwarePort(mode,prepare,program) {
   if (firmwareBusy || header.connectionPending || link.closing || replay || stopPending || flightExtra.running)
     throw Error('Finish the current kit operation and stop the sender first.');
-  if (!access.serial) throw Error(access.usbIssue);
+  const wireless=mode==='ap';
+  if (!wireless && !access.serial) throw Error(access.usbIssue);
   const existing=link.current;
-  if (existing && (state!=='connected' || existing.source!==2) || !existing && mode==='update')
-    throw Error('Connect the existing kit over USB to update its firmware.');
-  firmwareBusy=true; link.firmwareMaintenance=true; header.firmwareBusy(true);
+  if (existing && (state!=='connected' || existing.source!==(wireless?1:2)) || !existing && mode!=='install')
+    throw Error('Connect the existing kit over '+(wireless?'AP Wi-Fi.':'USB.'));
+  firmwareBusy=true; link.firmwareMaintenance=wireless?'ap':true; header.firmwareBusy(true);
   const protect=event=>{event.preventDefault();event.returnValue='';};
   window.addEventListener('beforeunload',protect);
   try {
@@ -181,6 +182,12 @@ async function withFirmwarePort(mode,prepare,program) {
           status[0]!==false || setup[8] || [1,2].includes(setup[3]))
         throw Error('Disarm the kit and finish ESC or motor tests before flashing.');
       release.kitId=setup[15];
+      if(wireless){
+        const components=await link.readGroup(141);
+        if(components[0]!=='Areion FC A1'||components[3]!==true||existing!==link.current||page!=='firmware')
+          throw Error('This kit needs a USB firmware update before it can update over AP.');
+        return await program(link,release);
+      }
       await disconnect();
       if (link.current || link.closing) throw Error('The telemetry port is still busy.');
     }
@@ -212,14 +219,17 @@ function render() {
   $('import').title = $('import').disabled ? 'Disconnect the kit to open a recording.' : 'Open a telemetry recording';
   const now = performance.now(), refresh = now - lastShellUpdate >= 150;
   if (!refresh && page !== 'flight') return;
-  const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
+  // A click can land between two renders, after the model has received new frames.
+  // Read live ages at the point of use. CSV playback stays on its fixed playhead.
+  const readClock=replay?()=>clock:()=>performance.now();
+  const ctx = {model,get clock(){return readClock();},state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
     withFirmwarePort,firmwareBusy,reconnectFirmwarePort:port=>header.reconnectFirmwarePort(port),path:route,mode:header.mode,portLabel:header.endpointLabel,
     get packetCount(){return replay ? replay.index : packetCount;},
     journal,diagnosticScope,clearDiagnosticEvents:()=>{shell.events.length=0;shell.lastEvent=null;link.lastConnection=null;},
     sensorReport:()=>shell.modules.get('configuration')?.sensorReport(link),
     browser:{embedded:access.embedded, usb:access.usbIssue, ap:access.apIssue, offline:header.offline},
     get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},
-    group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),
+    group:(id,maxAge=Infinity)=>model.get(id,readClock(),maxAge),
     checkTransmitter:()=>flightExtra.transmitter.open(ctx),
     navigate:view,toggleUsb:()=>header.toggle(),openRecording:()=>view('record'),message:log,stopKit,
     saveInput: source => {

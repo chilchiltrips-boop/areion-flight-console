@@ -1,9 +1,9 @@
 #pragma once
 // Sketch-specific group bindings and input state. AP settings/object live in .ino.
-// Requires the supplied ZebjusAreionLink v3.3.0 or a compatible v3 API.
+// Requires the supplied ZebjusAreionLink v3.4.0 or a compatible v3 API.
 // Flight math and hardware remain in the sketch.
-#if !defined(ZEBJUS_AREION_LINK_API_LEVEL) || ZEBJUS_AREION_LINK_API_LEVEL < 30300
-#error "Install the supplied ZebjusAreionLink 3.3.0 library; remove older duplicate installations."
+#if !defined(ZEBJUS_AREION_LINK_API_LEVEL) || ZEBJUS_AREION_LINK_API_LEVEL < 30400
+#error "Install the supplied ZebjusAreionLink 3.4.0 library; remove older duplicate installations."
 #endif
 #if !defined(ZEBJUS_AREION_LINK_VERSION_MAJOR) || ZEBJUS_AREION_LINK_VERSION_MAJOR != 3
 #error "This Areion FC A1 sketch requires the matching ZebjusAreionLink v3 library."
@@ -21,7 +21,11 @@ static areion::Group AreionRatePID(2,1,true,true), AreionAnglePID(3,1,true,true)
 static areion::Group AreionAccelOffsets(6,2,true,true);
 static areion::Group AreionArmingSettings(4,2,true,true), AreionFlightSettings(7,3,true,true);
 static areion::Group AreionTimeoutSettings(112,1,true,true), AreionOutputs(23,2), AreionDevice(125,1);
-static std::string AreionFirmwareVersion="3.3.0";
+static std::string AreionFirmwareVersion="3.4.0";
+static areion::Group AreionComponents(141,1);
+static std::string AreionBoardName="Areion FC A1",AreionLinkVersion=ZEBJUS_AREION_LINK_VERSION,AreionPpmVersion=ZEBJUS_PPM_VERSION;
+static bool AreionOtaSupported=true;
+namespace areion_ota { static bool busy(); static void cancel(); }
 static int AreionTargetHz=250, AreionControlHz=50, AreionPpmPin=D10;
 static int AreionMotorPins[4]={MOTOR_PINS[0],MOTOR_PINS[1],MOTOR_PINS[2],MOTOR_PINS[3]};
 static int AreionPwmHz=pwmFreq, AreionPwmBits=pwmResolution;
@@ -117,15 +121,18 @@ static void areion_offsets_applied() {
 }
 #include "AreionSetupLifecycle.h"
 #include "AreionWifiSettings.h"
+#include "AreionOta.h"
 
 static areion::ActionResult areion_arm_action(const std::vector<areion::Value>& data,uint32_t now) {
   if(data.size()!=1 || data[0].type!=areion::ValueType::String) return {false,"ACTION_DATA"};
   if(data[0].text=="DISARM") {
+    areion_ota::cancel();
     // Deliberately independent of throttle, source and input freshness. The
     // engine has already checked the owner/session and command sequence.
     if(!areion_motor_safe_stop()) return {false,"ESC_CANCEL_NOT_PERSISTED"};
     return {true,"DISARMED"};
   }
+  if(areion_ota::busy())return {false,"FIRMWARE_UPDATE_ACTIVE"};
   if(data[0].text!="ARM") return {false,"ACTION_UNKNOWN"};
   if(AreionPidPending) return {false,"PID_SAVE_PENDING"};
   if(AreionSetupLocked || !AreionWizardComplete) return {false,"SETUP_LOCKED"};
@@ -229,6 +236,7 @@ static bool areion_link_begin(bool transportReady) {
     .add(AreionPPMFresh).add(AreionAPFresh).add(AreionInputReady)
     .add(AreionInputChannelCount).add(AreionInputAgeMs).add(AreionOwnerSession)
     .add(AreionUSBFresh);
+  AreionComponents.add(AreionBoardName,32).add(AreionLinkVersion,32).add(AreionPpmVersion,32).add(AreionOtaSupported);
   AreionLinkReady=transportReady && receiver.addGroup(AreionRatePID)
     && receiver.addGroup(AreionAnglePID) && receiver.addGroup(AreionIMU)
     && receiver.addGroup(AreionChannels) && receiver.addGroup(AreionStatus)
@@ -237,13 +245,14 @@ static bool areion_link_begin(bool transportReady) {
     && receiver.addGroup(AreionArmingSettings) && receiver.addGroup(AreionFlightSettings)
     && receiver.addGroup(AreionTimeoutSettings) && receiver.addGroup(AreionOutputs)
     && receiver.addGroup(AreionDevice) && receiver.engine().addAction(123,1,areion_arm_action)
-    && areion_wifi_bind() && areion_setup_bind();
-  receiver.engine().onWriteAllowed([] { return !Armed && !AreionPidPending && !AreionMotorTestActive && AreionEscState!=1 && AreionEscState!=2 && !AreionEscBootMode && AreionSetupStoreHealthy; });
+    && areion_wifi_bind() && areion_setup_bind() && receiver.addGroup(AreionComponents)
+    && receiver.engine().addAction(140,1,areion_ota::command);
+  receiver.engine().onWriteAllowed([] { return !areion_ota::busy() && !Armed && !AreionPidPending && !AreionMotorTestActive && AreionEscState!=1 && AreionEscState!=2 && !AreionEscBootMode && AreionSetupStoreHealthy; });
   // ESC timing is autonomous and all flight ARM paths remain locked. Allow
   // reconnect/read/STOP even when calibration or storage health forbids writes.
   receiver.engine().onOwnerReleaseAllowed([] { return !Armed && !AreionMotorTestActive; });
   receiver.engine().onControlEnabled([] {
-    return AreionLinkReady && (AreionInputSource==2 || (AreionInputSource==1 && AreionAPReady));
+    return !areion_ota::busy() && AreionLinkReady && (AreionInputSource==2 || (AreionInputSource==1 && AreionAPReady));
   });
   receiver.engine().onControl([] (const int* values,size_t count) {
     if(count!=expectedArrayLength) return;

@@ -1,5 +1,5 @@
 """Groups bound by supported Areion firmware. IDs and schemas must match the firmware."""
-SUPPORTED_FIRMWARE = frozenset(("3.1.0", "3.2.0", "3.3.0"))
+SUPPORTED_FIRMWARE = frozenset(("3.1.0", "3.2.0", "3.3.0", "3.4.0"))
 
 DRONE_GROUPS = {2: {'name': 'RATE_PID',
      'schema': 1,

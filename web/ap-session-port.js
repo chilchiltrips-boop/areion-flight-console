@@ -1,7 +1,48 @@
 import {apUrl, MAX_ROUND_TRIP_MS} from './wifi.js';
 
-const createWorker = () => new Worker(new URL('./ap-worker.js', import.meta.url),
-  {type:'module', name:'Areion AP telemetry'});
+import {runApWorker} from './ap-worker-runtime.js';
+
+// Run polling away from rendering whenever the browser permits it. The shipped
+// page already contains the complete worker, including its Wi-Fi dependency.
+function createWorker() {
+  let worker, blobUrl, opening, ready=false, local=false, ended=false;
+  const bridge={
+    postMessage(message){if(message.type==='open')opening=message;worker.postMessage(message);},
+    terminate(){ended=true;worker?.terminate();if(blobUrl)URL.revokeObjectURL(blobUrl);}
+  };
+  function useWindow(){
+    if(ended||local||ready)return;
+    local=true;worker?.terminate();
+    if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null;}
+    const {port1,port2}=new MessageChannel();
+    const stop=runApWorker(port2);
+    worker=port1;worker.terminate=()=>{port1.close();void stop();};
+    listen(port1);
+    if(opening){bridge.onfallback?.();port1.postMessage(opening);}
+  }
+  function listen(instance){
+    instance.onmessage=event=>{
+      if(ended||instance!==worker)return;
+      if(event.data.type==='error'&&!ready&&!local){useWindow();return;}
+      if(event.data.type==='ready')ready=true;
+      bridge.onmessage?.(event);
+    };
+    instance.onmessageerror=event=>bridge.onmessageerror?.(event);
+    instance.onerror=event=>{
+      event.preventDefault?.();
+      if(ended||instance!==worker)return;
+      if(!ready&&!local)useWindow();else bridge.onerror?.(event);
+    };
+  }
+  try{
+    const source=JSON.parse(document.getElementById('ap-worker-source')?.textContent||'null');
+    if(source)blobUrl=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));
+    worker=blobUrl?new Worker(blobUrl,{name:'Areion AP telemetry'}):
+      new Worker(new URL('./ap-worker.js',import.meta.url),{type:'module',name:'Areion AP telemetry'});
+    listen(worker);
+  }catch{useWindow();}
+  return bridge;
+}
 
 function pending() {
   let resolve, reject;
@@ -21,7 +62,12 @@ export class ApSessionPort {
     if (this.worker) throw Error('AP Wi-Fi is already open.');
     const worker = this.worker = this.workerFactory();
     const opened = this.opened = pending();
-    this.startTimer = setTimeout(() => this.finish(Error('AP connection did not start. Check the kit Wi-Fi and offline console files.')), 35000);
+    const armDeadline=()=>{
+      clearTimeout(this.startTimer);
+      this.startTimer=setTimeout(()=>this.finish(Error('AP connection did not start. Join the kit Wi-Fi and allow local network access.')),35000);
+    };
+    worker.onfallback=armDeadline;
+    armDeadline();
     this.error = null;
     this.readable = new ReadableStream({
       start: controller => { this.controller = controller; },
@@ -42,7 +88,7 @@ export class ApSessionPort {
     });
     worker.onerror = event => {
       event.preventDefault?.();
-      this.finish(Error('AP connection worker stopped. Reopen the console online if its files need updating.'));
+      this.finish(Error('AP telemetry stopped'+(event.message?' · '+event.message:'. Reconnect to the kit Wi-Fi.')));
     };
     worker.onmessageerror = () => this.finish(Error('AP worker message could not be read.'));
     worker.onmessage = ({data}) => {

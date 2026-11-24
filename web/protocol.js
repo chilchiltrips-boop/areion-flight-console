@@ -129,6 +129,7 @@ const entries = new Map([
   [131, [1, [integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 2100), integer(0, 8), bool, integer(0, 4294967295)]]], // RAW_PPM
   [132, [1, Array.from({length: 8}, () => [integer(900, 1500), integer(900, 2100), integer(1500, 2100), integer(0, 1)]).flat()]], // RX_CALIBRATION
   [134, [1, [integer(0, 3), integer(0, 2), integer(1, 8), integer(1, 8), integer(1, 8), integer(1, 8), integer(0, 50), integer(1000, 1500), integer(1000, 1500), integer(1000, 1500), integer(1000, 1500)]]], // SETUP_CONFIG
+  [141, [1, [boundedString, boundedString, boundedString, bool]]], // Board, Link library, PPM library, AP update capability
   [139, [1, [boundedString, boundedString, bool, bool]]], // USB AP status (on demand)
   [136, [1, [bool, integer(0, 4294967295), integer(0, 4294967295), boundedString]]], // PID_STATUS
 ]);
@@ -154,6 +155,13 @@ const setupAcks = new Map([
   ['FINALIZE','SETUP_SAVED_ARM_AVAILABLE'], ['RESET_ALL','RESET_DEFAULTS_SAVED'], ['INPUT_SAVE','INPUT_SAVED']
 ]);
 function actionValid(group, values) {
+  if (group === 140) {
+    const [command,offset,...chunks]=values;
+    if(command==='BEGIN')return values.length===3&&inRange(offset,32,0x140000)&&typeof values[2]==='string'&&/^[a-f0-9]{64}$/.test(values[2]);
+    if(command==='DATA')return inRange(offset,0,0x140000-1)&&chunks.length>0&&chunks.length<=8&&
+      chunks.every(s=>typeof s==='string'&&/^(?:[0-9a-f]{2}){1,64}$/.test(s));
+    return values.length===1&&['FINISH','ABORT'].includes(command);
+  }
   if (group === 138) {
     const password = values.at(-1);
     if (typeof password !== 'string' || !/^[\x20-\x7e]{8,63}$/.test(password)) return false;
@@ -195,6 +203,11 @@ export function matchesAck(request, reply) {
   if (request.type === 'SET') return ack === 'APPLIED_UNSAVED';
   if (request.type === 'SAVE') return ack === 'SAVED';
   if (request.type !== 'ACTION') return false;
+  if(request.group===140){
+    const [command,offset,...chunks]=request.values;
+    if(command==='DATA')return ack==='OTA_OFFSET_'+(offset+chunks.reduce((bytes,s)=>bytes+s.length/2,0));
+    return ack===({BEGIN:'OTA_READY',FINISH:'OTA_RESTART',ABORT:'OTA_ABORTED'})[command];
+  }
   if (request.group === 138) return ack === (request.values[0] === 'RECOVER_AP' ? 'AP_RECOVERED' : 'AP_SAVED');
   if (request.group === 123) return ack === (request.values[0] === 'ARM' ? 'ARMED' : 'DISARMED');
   if (request.group === 135) return ack === setupAcks.get(request.values[0]);

@@ -35,6 +35,11 @@ try {
         !imageMatchesBoard(key,bytes)) throw Error('Incorrect release image: '+key);
     generated.set('firmware-release/'+meta.file,bytes);
   }
+  if(m.sources){
+    const archive=await readFile(join(firmware,m.sources.file));
+    if(archive.length!==m.sources.bytes||createHash('sha256').update(archive).digest('hex')!==m.sources.sha256)throw Error('Incorrect firmware source archive.');
+    generated.set('firmware-release/'+m.sources.file,archive);
+  }
   generated.set('firmware-release/manifest.json',Buffer.from(JSON.stringify(m)));
 } catch (error) {
   if (error.code!=='ENOENT' || process.argv.includes('--require-firmware') || generated.has('firmware-release/bootloader.bin')) throw error;
@@ -54,9 +59,13 @@ for (const path of files) {
 }
 const version = releaseHash.digest('hex').slice(0, 20);
 const core = coreHash.digest('hex').slice(0, 20);
+// A newly opened worker may request its script after the laptop has left the internet.
+const wifiSource=contents.get('wifi.js').toString().replace(/^export /gm,'');
+const apRuntime=contents.get('ap-worker-runtime.js').toString().replace(/^import .+;$/m,'').replace(/^export /gm,'');
+const workerSource=JSON.stringify(wifiSource+'\n'+apRuntime+'\nrunApWorker(self);').replaceAll('<','\\u003c');
 const integrity = [];
 for (const [path, sourceBytes] of contents) {
-  let bytes = path === 'index.html' ? Buffer.from(sourceBytes.toString().replace('__AREION_CORE__', core)) : sourceBytes;
+  let bytes = path === 'index.html' ? Buffer.from(sourceBytes.toString().replace('__AREION_CORE__', core).replace('id="ap-worker-source">null',()=> 'id="ap-worker-source">'+workerSource)) : sourceBytes;
   const digest = createHash('sha256').update(bytes);
   if (/\.(html|svg)$/.test(path)) {
     // Embedding proxies may add markup. Identify the shipped document itself.

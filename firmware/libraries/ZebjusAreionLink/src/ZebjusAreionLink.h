@@ -20,6 +20,7 @@ class ZebjusAreionLink {
   void restrictGroupsToUsb(Stream& usb, uint16_t action, uint16_t status) {
     privateUsb_ = &usb; privateAction_ = action; privateStatus_ = status;
   }
+  void restrictGroupToBrowserGateway(uint16_t group) { gatewayGroup_ = group; }
   bool beginAP(const char* ssid, const char* password, uint16_t port = 8080);
   bool beginSTA(const char* ssid, const char* password, uint16_t port = 8080);
   bool addGroup(areion::Group& group) { return engine_.addGroup(group); }
@@ -60,6 +61,7 @@ class ZebjusAreionLink {
     uint16_t port = 0;
     std::deque<TxFrame> queue;
   };
+  uint16_t gatewayGroup_ = 0;
   Stream* privateUsb_ = nullptr;
   uint16_t privateAction_ = 0, privateStatus_ = 0;
   bool privateGroup(uint16_t id) const {

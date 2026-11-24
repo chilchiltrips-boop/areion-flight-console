@@ -36,7 +36,9 @@ If the platform sends a restrictive `Permissions-Policy` header, include `https:
 
 ## Firmware and Wi-Fi recovery
 
-Open **Firmware** in desktop Chrome or Edge. Remove propellers and disconnect the LiPo. For an existing kit, connect over USB and choose **Update existing kit**. For a new board, choose **Install / recover board** and select its USB port. Reconnect after flashing to check the running version.
+Open **Firmware** in desktop Chrome or Edge. Remove propellers and disconnect the LiPo. For an existing kit, connect over USB and choose **Update via USB**. For a new board, choose **Install / recover board** and select its USB port. Reconnect after flashing to check the running version.
+
+The Firmware page shows the installed FC version and available release. Firmware 3.4.0 adds AP installation and reports the versions of both Arduino libraries. Update older boards once by USB. For later AP updates, join the kit Wi-Fi with the console ready offline, power the board over USB, remove the propellers, disconnect the LiPo and hold BOOT while starting the update. Release BOOT when writing starts. Reconnect after restart to verify the installed version. The same page provides the matching Arduino source ZIP.
 
 With firmware 3.3.0 or later, **Firmware → Kit Wi-Fi** lets you set the SSID and password over USB. **Recover access → Restore Wi-Fi** restores the release's default SSID `aerion drone` and generates a new password. Keep the displayed password and restart the board. Flight settings are stored separately. Set the credentials once when upgrading a kit whose password existed only in its old sketch.
 
@@ -56,7 +58,7 @@ After all six pass, choose **Save calibration to kit**. The console reads back b
 | Configuration | Guided setup and restart verification, receiver calibration, IMU capture, ESCs and motor outputs, rate and attitude PID editors with controller readback |
 | System | Live fields with age and state, connection details, event log, copyable diagnostics and CSV export |
 | Scopes | Motion, control, spectrum and receiver plots, freeze, time window and export |
-| Firmware | USB update or installation, boot version verification, and USB Wi-Fi name, password and recovery |
+| Firmware | USB installation, AP updates, installed and release versions, Arduino source bundle, and USB Wi-Fi name, password and recovery |
 
 Remove the propellers before setup and motor calibration. Hardware-in-the-loop is unavailable in this release. The IMU shows relative yaw. GPS position requires a reported fix.
 

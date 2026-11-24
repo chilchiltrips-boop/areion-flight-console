@@ -279,6 +279,8 @@ void setup() {
   Serial.begin(115200);
   // === Receiver + USB/AP setup ===
   bool linkReady=receiver.begin();
+  pinMode(areion_ota::bootPin,INPUT_PULLUP);
+  receiver.restrictGroupToBrowserGateway(140);
   receiver.restrictGroupsToUsb(Serial, 138, 139);
   if (linkReady) linkReady=receiver.attachStream(Serial);
   receiver.setControlFromSerial(false); // Boot input is PPM; source selection enables one route.
@@ -331,6 +333,13 @@ void loop() {
   if (LoopDt<=0.0f) LoopDt=0.004f;
 
   receiver.processPackets(); // Receive commands and8-channel USB/AP input.
+  if(areion_ota::busy()){
+    areion_setup_output_minimum();
+    areion_ota::tick(millis());
+    areion_serial_publish();
+    delay(2);LoopTimer=micros();PreviousLoopTime=LoopTimer;
+    return;
+  }
   read_receiver();
   areion_pid_flush_pending(); // Disarmed only; flash is never written during flight.
   if(AreionEscBootMode) {

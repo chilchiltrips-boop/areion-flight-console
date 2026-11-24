@@ -1,5 +1,6 @@
 // Areion FC A1, Arduino ESP32-C6, 4 MB default OTA partition scheme.
 export const board = 'Areion FC A1';
+export const reportsComponents=version=>/^3\.(?:[4-9]|[1-9]\d+)\.\d+$/.test(String(version));
 export const sector = 0x1000;
 export const layout = {
   bootloader: {address:0, limit:0x8000},
@@ -30,6 +31,8 @@ export function validateManifest(m) {
         !/^[a-f0-9]{64}$/.test(image.sha256) || !/^[a-f0-9]{32}$/.test(image.md5))
       throw Error('Invalid firmware image entry: '+key);
   }
+  if(m.libraries && !['ZebjusAreionLink','ZebjusPpm'].every(name=>/^\d+\.\d+\.\d+$/.test(m.libraries[name])))throw Error('Invalid Arduino library versions.');
+  if(m.sources && (m.sources.file!=='arduino-sources.zip'||!Number.isInteger(m.sources.bytes)||m.sources.bytes<=0||!/^[a-f0-9]{64}$/.test(m.sources.sha256)))throw Error('Invalid source archive.');
   return m;
 }
 export const digestHex = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import {crc32} from 'node:zlib';
+import {ApSessionPort} from '../web/ap-session-port.js';
 import {UsbTelemetry} from '../web/usb.js';
 import assert from 'node:assert/strict';
 import {WifiPort, apUrl, DEFAULT_AP_URL, findApGateway} from '../web/wifi.js';
@@ -20,6 +21,21 @@ class Socket extends EventTarget {
   }
   close(){this.readyState=3;this.dispatchEvent(new Event('close'));}
 }
+
+test('blocked worker bootstrap opens the gateway once in the window and keeps binary telemetry usable',async t=>{
+  const previous={Worker:globalThis.Worker,WebSocket:globalThis.WebSocket,document:globalThis.document};
+  globalThis.document={getElementById:()=>null};
+  globalThis.Worker=class{postMessage(){queueMicrotask(()=>this.onerror?.({preventDefault(){}}));}terminate(){}};
+  globalThis.WebSocket=Socket;
+  t.after(()=>{for(const [key,value] of Object.entries(previous)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});
+  Socket.instance=null;
+  const port=new ApSessionPort();const opened=port.open();t.after(()=>port.close());
+  for(let i=0;i<100&&!Socket.instance;i++)await new Promise(ok=>setTimeout(ok,5));
+  const socket=Socket.instance;assert.ok(socket);socket.up();socket.reply(1,77,[36,10]);await opened;
+  const reader=port.readable.getReader(),sample=await reader.read();reader.releaseLock();
+  assert.deepEqual([...sample.value.bytes],[36,10]);assert.ok(Math.abs(performance.now()-sample.value.at)<200);
+  await port.close();assert.equal(socket.readyState,3);
+});
 
 test('default targets the on-kit websocket and normalizes local addresses',()=>{
   assert.equal(apUrl('192.168.4.1'),DEFAULT_AP_URL);

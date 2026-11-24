@@ -170,7 +170,20 @@ export async function saveFlightInput(link,source,{wizard=false,guard=()=>{}}={}
   return source;
 }
 
-export function receiverValues(capture,raw,baseline,map){
+export function throttleWindow(capture, raw, calibration, channel, threshold) {
+  const i=channel-1;
+  if (!raw?.[9] || i<0 || i>=raw[8] || !Number.isInteger(i) || !Number.isFinite(threshold) || !calibration) return null;
+  const low=capture ? capture.min[i] : calibration[4*i];
+  const high=capture ? capture.max[i] : calibration[4*i+2];
+  if (!Number.isFinite(high-low) || high-low<400) return null;
+  const reversed=Boolean(calibration[4*i+3]);
+  // The FC uses a strict less-than test after normalizing the captured range.
+  const allowance=Math.ceil((high-low)*(threshold-1000)/1000)-1;
+  const target=reversed ? high-allowance : low+allowance;
+  const ready=reversed ? raw[i]>=target : raw[i]<=target;
+  return {ready, label:'CH'+channel+' · '+raw[i]+' µs · target '+(reversed?'≥ ':'≤ ')+target+' µs'};
+}
+export function receiverValues(capture,raw,baseline,map,threshold=defaults[4][0]){
   requireThat(capture&&capture.samples>=10&&capture.last-capture.first>=2000,'Capture at least ten frames over two seconds.');
   requireThat(raw?.[9]&&raw[8]===capture.count&&map.every(c=>c>=1&&c<=raw[8])&&new Set(map).size===4,'Check the receiver and the four channel assignments.');
   const values=baseline.slice(),throttle=map[2]-1;
@@ -179,7 +192,8 @@ export function receiverValues(capture,raw,baseline,map){
     if(width<400){requireThat(!map.includes(i+1),'Move CH'+(i+1)+' fully in both directions.');continue;}
     let center=Math.round((low+high)/2);
     if(i===throttle){
-      requireThat(values[4*i+3]?raw[i]>=high-.1*width:raw[i]<=low+.1*width,'Lower the throttle before finishing.');
+      const window=throttleWindow(capture,raw,values,map[2],threshold);
+      requireThat(window?.ready,'Lower the throttle before finishing. '+(window?.label??''));
     }else if(map.includes(i+1)){center=raw[i];}
     requireThat(center-low>=100&&high-center>=100,'Center CH'+(i+1)+' before finishing.');
     values.splice(i*4,3,low,center,high);

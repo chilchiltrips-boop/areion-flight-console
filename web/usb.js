@@ -1,5 +1,7 @@
 import {encodeCommand, encodeRequest, FrameDecoder, matchesAck, newer, schemaFor, validGroup} from './protocol.js';
 
+import {reportsComponents} from './firmware-release.js';
+
 const SETTINGS = [125,110,7,112,134,130,121,2,3,4,6,132,136];
 const OWNER_LOST = new Set(['NOT_OWNER','SESSION_EXPIRED','SESSION_RETIRED']);
 const now = () => performance.now();
@@ -106,6 +108,9 @@ export class UsbTelemetry {
   data(run,msg,at) {
     const row={group:msg.group,values:msg.data,at,event:msg.session===run.fc};
     run.latest.set(msg.group,row);
+    if(msg.group===125 && reportsComponents(msg.data[0]) && !run.requestedComponents){
+      run.requestedComponents=true;run.reads.push(141);
+    }
     this.onData(row);
   }
 
@@ -119,7 +124,7 @@ export class UsbTelemetry {
       const name=privateGroup?'USB Wi-Fi settings':p.type==='ACTION'?p.values[0]:p.type+(p.saved?' saved':'');
       this.onResult({kind:'reply',group:p.group,name,status:err?(p.saved&&err.code==='NOT_SAVED'?'info':'error'):'ok',
         detail:err?(privateGroup?'Wi-Fi settings request failed.':err.message):undefined,
-        values:privateGroup?undefined:{sequence:p.seq,attempts:p.attempt,elapsed_ms:Math.round(now()-p.created),request:p.values,reply:values}},run);
+        values:privateGroup?undefined:{sequence:p.seq,attempts:p.attempt,elapsed_ms:Math.round(now()-p.created),request:p.group===140&&p.values[0]==='DATA'?['DATA',p.values[1]]:p.values,reply:values}},run);
     }
     if (err) p.reject?.(err);
     else p.resolve?.(values);
@@ -230,7 +235,9 @@ export class UsbTelemetry {
         values:[138,139].includes(group)?undefined:{attempts:0,code:error.code}},run);
       return Promise.reject(error);
     };
-    if (this.firmwareMaintenance && type!=='READ' && !priority)
+    const ota=this.firmwareMaintenance==='ap' && run?.source===1 && group===140 && type==='ACTION';
+    if(group===140&&!ota)return reject(fail('Start an AP update on the Firmware page.','FLASH_BUSY'));
+    if (this.firmwareMaintenance && type!=='READ' && !priority && !ota)
       return reject(fail('USB firmware transfer in progress.','FLASH_BUSY'));
     const canInspect=type==='READ' && this.state==='stale';
     if ((group===138 || group===139) && run?.source!==2)
@@ -311,7 +318,7 @@ export class UsbTelemetry {
       } else if(at-p.sent>(p.type==='SAVE'||p.type==='ACTION'&&p.group!==123?1500:600)) {
         // Reuse the exact sequence and bytes for idempotent reads/settings only.
         // Do not reissue ARM or motor test commands on delayed or lost replies.
-        if(p.attempt<2 && ['READ','SET','SAVE'].includes(p.type) && !stale &&
+        if(p.attempt<2 && (['READ','SET','SAVE'].includes(p.type)||p.group===140&&p.values[0]==='DATA') && !stale &&
            globalThis.document?.visibilityState!=='hidden'){p.attempt++;p.sent=at;this.write(run,p.frame);}
         else this.finish(run,fail('Controller reply timed out. Read the kit to verify its state.','TIMEOUT'));
       }

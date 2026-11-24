@@ -1,5 +1,5 @@
 import {escPrerequisite,markEsc} from './esc-progress.js';
-import {defaults,equal,receiverValues,saveFlightInput,SetupKit} from './config-commands.js';
+import {defaults,equal,receiverValues,throttleWindow,saveFlightInput,SetupKit} from './config-commands.js';
 
 const checked=(id,text)=>'<label class="cfg-check"><input type="checkbox" data-confirm="'+id+'"> '+text+'</label>';
 const act=(key,label)=>'<button type="button" class="cfg-btn" data-kit="'+key+'">'+label+'</button>';
@@ -148,6 +148,27 @@ export class ConfigPanel {
     const before=await op.read(g);
     await op.store(g,this.snapshot(g,before,indices),before);this.clearFields(g,indices);
   }
+  receiverPreview(){
+    const ctx=this.ctx,a=this.local.state(),raw=this.fresh(131),cfg=ctx?.group(134),cal=ctx?.group(132);
+    const at=ctx?.model.frames.get(131)?.at,timeout=ctx?.group(112)?.[0],limit=ctx?.group(4)?.[0];
+    if(!cfg||cfg[1]!==0||!raw?.[9]||!Number.isFinite(at)||!(raw[10]+ctx.clock-at<timeout))
+      return {message:'Waiting for fresh PPM from the selected receiver.'};
+    if(!cal||!Number.isFinite(limit))return {message:'Reading receiver settings from the kit.'};
+    let label;
+    try {
+      const mapped=this.snapshot(134,cfg,[2,3,4,5,6]).slice(2,6),direction=this.snapshot(132,cal);
+      const throttle=throttleWindow(a.endpoints,raw,direction,mapped[2],limit);
+      label=throttle?.label;
+      if(a.rxRun)return {label,message:'Sweep every axis, then choose Stop capture.'};
+      if(!a.endpoints&&!this.fresh(130)?.[6])return {label,message:'Choose Capture range to measure stick travel.'};
+      if(throttle&&!throttle.ready)return {label,message:'Move throttle to its low endpoint. Keep this captured range.'};
+      if(a.endpoints)receiverValues(a.endpoints,raw,direction,mapped,limit);
+      if(!throttle)return {label,message:'Capture the full throttle range.'};
+      const flight=ctx.group(7);
+      if(!flight||new Set([...mapped,flight[0]]).size!==5||flight[0]>raw[8])return {label,message:'Assign separate, available channels to each axis and flight mode.'};
+      return {label,ready:true,message:'Hold throttle low, release roll, pitch and yaw to centre, then save.'};
+    }catch(error){return {label,message:error.message};}
+  }
   allowed(key){
     const s=this.fresh(130),cfg=this.ctx?.group(134),a=this.local.state(),check=k=>this.confirm.has(k);
     if(key==='motor-stop')return Boolean(this.motor||s?.[8])&&this.live;
@@ -167,7 +188,7 @@ export class ConfigPanel {
       case 'retry-sensor':return this.local.sensorVisible() && this.local.calibration.sensor.needsRetry &&
         !this.local.calibration.gate(this.ctx,this.local.sensorControls());
       case 'imu':return this.local.sensorVisible() && this.local.calibration.ready(this.ctx,this.local.sensorControls());
-      case 'receiver':return check('receiver')&&!a.rxRun&&cfg?.[1]===0&&(a.endpoints||s[6])&&this.fresh(131)?.[9];
+      case 'receiver':return check('receiver')&&!a.rxRun&&cfg?.[1]===0&&this.receiverPreview().ready;
       case 'schedule':case 'skip':return !escPrerequisite(s,cfg)&&([0,6].includes(s[3])||[4,5].includes(s[3])&&check('redo'))&&check(key==='schedule'?'compatible':'skip');
       case 'verify-esc':return s[3]===3&&check('tones')&&this.fresh(21)&&this.fresh(120)?.[2];
       case 'motor-start':return !s[8]&&this.motorOk();
@@ -186,6 +207,11 @@ export class ConfigPanel {
       const [g,i]=el.dataset.field.split(':').map(Number),v=this.draft.get(el.dataset.field)??ctx.group(g)?.[i]??(this.local.state().page==='pid'?defaults[g]?.[i]:null);
       if(el.type==='checkbox')el.checked=Boolean(v);else if(document.activeElement!==el)el.value=Number.isFinite(v)?String(Number(v.toFixed(6))):'';
       el.disabled=!this.live||v==null||this.busy||Boolean(this.motor)||([2,3].includes(g)&&this.armed!==false);
+    }
+    const receiverHint=this.root.querySelector('[data-rx-guide]');
+    if(receiverHint){
+      const preview=this.receiverPreview(),reading=this.root.querySelector('[data-rx-throttle]');
+      receiverHint.textContent=preview.message;reading.textContent=preview.label||'—';
     }
     for(const el of this.root.querySelectorAll('[data-confirm]'))el.checked=this.confirm.has(el.dataset.confirm);
     for(const el of this.root.querySelectorAll('button[data-kit]'))el.disabled=!this.allowed(el.dataset.kit);
@@ -216,6 +242,7 @@ export class ConfigPanel {
       const result=await this.perform(key,op);
       guard();const detail=result||'Saved and verified on the kit.';this.info(detail);
       trace('ok',detail,key==='final'||key==='restart'?this.receipt:undefined);
+      if(key==='receiver')this.local.receiverVerified?.();
     }catch(error){trace(token===this.epoch?'error':'interrupted',error.message);if(token===this.epoch)this.info(error.message,true);}
     finally{if(token===this.epoch){this.busy=false;if(this.ctx)this.refresh(this.ctx);}}
   }
@@ -268,9 +295,12 @@ export class ConfigPanel {
       case 'receiver':{
         const before=await op.read(134),indices=[2,3,4,5,6],cfg=this.snapshot(134,before,indices),map=cfg.slice(2,6),f=await op.read(7);
         if(new Set([...map,f[0]]).size!==5)throw Error('Choose distinct channels for four axes and flight mode.');
-        const base=await op.read(132),withDirection=this.snapshot(132,base),raw=await op.read(131);
-        if(!raw[9]||raw[10]>=(await op.read(112))[0])throw Error('Fresh PPM required.');
-        const values=a.endpoints?receiverValues(a.endpoints,raw,withDirection,map):withDirection;
+        const base=await op.read(132),withDirection=this.snapshot(132,base);
+        const limit=(await op.read(4))[0],timeout=(await op.read(112))[0],raw=await op.read(131);
+        if(!raw[9]||raw[10]>=timeout)throw Error('Fresh PPM required.');
+        const values=a.endpoints?receiverValues(a.endpoints,raw,withDirection,map,limit):withDirection;
+        const throttle=throttleWindow(null,raw,values,map[2],limit);
+        if(!throttle?.ready)throw Error('Lower the throttle before finishing. '+(throttle?.label??''));
         await op.store(134,cfg,before);await op.store(132,values,base);
         await op.checkedAction('RX_OK',[1,0,0,0],s=>s[6]);
         this.clearFields(134,indices);this.clearFields(132,Array.from({length:32},(_,i)=>i));return 'Receiver calibration saved and verified.';

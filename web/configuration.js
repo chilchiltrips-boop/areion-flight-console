@@ -45,13 +45,18 @@ export function mount(root) {
   const sensorControls=()=>({confirmed,entered:hardware.entered});
   const sensorVisible=()=>!root.hidden && !document.hidden && (page==='imu' || (page==='wizard' && step===3));
   let page='wizard',step=0,confirmed=false,subPID=0,pickedProfile=0,last=null,linkId=null;
-  let endpoints=null,rxRun=false,statusRow=null;
+  let endpoints=null,rxRun=false,statusRow=null,returnToEsc=null;
   let tabRoots,sceneOrbit=0,profileEdited=false,responseAxis=0,responseAngle=0;
   let restartView=false,escProfile=1,resumeStep=false;
   let routedKit=null, previousKit=null, sensorSignature='';
   const hardware=new ConfigPanel(root,{
     state:()=>({page,step,confirmed,profile:pickedProfile,endpoints,rxRun}),
     calibration,sensorControls,sensorVisible,
+    receiverVerified:()=>{
+      const origin=returnToEsc;returnToEsc=null;
+      if(origin==='wizard'&&page==='wizard'&&step===4)moveStep(ESC_STEP);
+      else if(origin==='esc'&&page==='input')last?.navigate('configuration/esc');
+    },
     clearReceiver:()=>{endpoints=null;rxRun=false;},
     clearCaptures:()=>{calibration.stop('Calibration stopped. Start again when ready.');reportSensor();rxRun=false;},
     resetDraft:()=>{calibration.reset();endpoints=null;rxRun=false;profileEdited=false;pickedProfile=0;}
@@ -84,11 +89,11 @@ export function mount(root) {
   }
   function receiver() {
     return box('Receiver activity',sticks()+row('Selected input','selected')+row('Active input','active')+row('Receiver','inputHealth')+row('Switch channel','flightCh')+act('check-tx','Check transmitter')+extras.source())+
-      box('PPM endpoint capture','<p>Sweep the sticks and switches through their full travel. This preview uses the raw PPM stream from the kit.</p><div class="cfg-actions">'+act('rx-capture','Capture range')+act('rx-clear','Clear range')+'</div>'+row('Raw PPM','rawStatus')+row('Samples','rxSamples')+extras.receiver())+
+      box('PPM endpoint capture','<p>Sweep the sticks and switches through their full travel. This preview uses the raw PPM stream from the kit.</p><div class="cfg-actions">'+act('rx-capture','Capture range')+act('rx-clear','Clear range')+'</div>'+row('Raw PPM','rawStatus')+row('Samples','rxSamples')+'<div class="cfg-kv"><span>Throttle</span><strong data-rx-throttle>—</strong></div><p data-rx-guide></p>'+extras.receiver())+
       '<section class="cfg-card cfg-wide"><h3>Physical PPM channels</h3>'+extras.mapping()+kvTable(['Channel','Function','Raw (µs)','Min','Center','Max','Direction'],Array.from({length:8},(_,i)=>channelCell(i)).join(''))+'<p>Min and max show captured ranges during this local check. Direction and channel assignment can be changed before saving.</p></section>';
   }
   function esc(){
-    return box('ESC calibration',opt('ESC profile',['Standard ESC · 50 Hz','PWM ESC · 250 Hz','OneShot ESC'],escProfile)+row('Kit state','escState')+row('Output PWM','pwm')+row('Firmware range (duty)','duty')+'<div class="cfg-sequence">'+['Schedule','Power cycle','Endpoints','Confirm'].map((s,i)=>'<span data-phase="'+i+'">'+s+'</span>').join('')+'</div>'+extras.esc()+'<a href="#system/diagnostics" data-route="system/diagnostics">View diagnostics</a>')+(page==='esc'?
+    return box('ESC calibration',opt('ESC profile',['Standard ESC · 50 Hz','PWM ESC · 250 Hz','OneShot ESC'],escProfile)+row('Kit state','escState')+row('Output PWM','pwm')+row('Firmware range (duty)','duty')+'<div class="cfg-sequence">'+['Schedule','Power cycle','Endpoints','Confirm'].map((s,i)=>'<span data-phase="'+i+'">'+s+'</span>').join('')+'</div>'+extras.esc()+'<button hidden type="button" class="cfg-btn" data-act="esc-receiver">Complete PPM check</button><a href="#system/diagnostics" data-route="system/diagnostics">View diagnostics</a>')+(page==='esc'?
       box('Motor outputs',motorRows()+row('Verified outputs','mask')+'<p>Readings are commanded pulses. Check rotation physically with the propellers removed.</p>'+extras.motors()):'');
   }
   function arming(){
@@ -164,6 +169,7 @@ export function mount(root) {
   function show(name='wizard'){
     const pidIndex=pidTabs.findIndex(([route])=>route===name);
     const target=pidIndex!==-1?'pid':Object.hasOwn(panes,name)?name:'wizard';
+    if(target!==page && !(returnToEsc==='esc'&&target==='input'))returnToEsc=null;
     if(target!==page || target==='pid' && subPID!==pidIndex)hardware.pageChange();
     if(pidIndex!==-1)subPID=pidIndex;
     restartView=name==='restart';if(restartView)step=9;
@@ -177,7 +183,7 @@ export function mount(root) {
   function gate(ctx) {return !ctx.replay && ctx.state==='connected' && ctx.group(120,500)?.[0]===false;}
   function clearSessions() {
     sensorSignature='';calibration.reset();endpoints=null;rxRun=false;statusRow=null;
-    confirmed=false;linkId=null;
+    confirmed=false;linkId=null;returnToEsc=null;
   }
   function syncSafety(ctx){
     const id=ctx.group(130)?.[15];
@@ -277,6 +283,8 @@ export function mount(root) {
       const phase=fc?.[3],done=[4,5].includes(phase),redo=hardware.confirm.has('redo');
       const instruction=escInstruction(fc,cfg,!!(get(21,500)&&get(120,500)?.[2]));
       if(guide.textContent!==instruction)guide.textContent=instruction;
+      const repair=root.querySelector('[data-act="esc-receiver"]');
+      repair.hidden=!(fc?.[5]&&cfg?.[1]===0&&!fc[6]&&([0,6].includes(phase)||done&&redo)&&hardware.lock);
       const visible={redo:done,schedule:[0,6].includes(phase)||done&&redo,verify:phase===3,cancel:[1,2].includes(phase)};
       for(const el of root.querySelectorAll('[data-esc-control]'))el.hidden=!visible[el.dataset.escControl];
     }
@@ -286,7 +294,8 @@ export function mount(root) {
     hardware.refresh(ctx);
     const resume=root.querySelector('[data-resume]');if(resume)resume.hidden=hardware.lock;
     const escPending=step===ESC_STEP && !ctx.replay && (ctx.state==='connected'||resumeStep) && ![4,5].includes(fc?.[3]);
-    const buttons={back:!step,next:escPending||!confirmed||(hardware.live&&!hardware.lock&&step<8)||(hardware.live&&sensorPending),
+    const receiverPending=step===4&&hardware.live&&cfg?.[1]===0&&!fc?.[6];
+    const buttons={back:!step,next:receiverPending||escPending||!confirmed||(hardware.live&&!hardware.lock&&step<8)||(hardware.live&&sensorPending),
       'rx-capture':!rxRun&&(!confirmed||!hardware.lock||!gate(ctx)||!rawFresh||get(122,500)?.[0]!==0||!get(122,500)?.[2])};
     for(const [key,disabled] of Object.entries(buttons)){const b=root.querySelector('[data-act="'+key+'"]');if(b)b.disabled=!!disabled;}
     const rx=root.querySelector('[data-act="rx-capture"]');if(rx)rx.textContent=rxRun?'Stop capture':'Capture range';
@@ -308,6 +317,7 @@ export function mount(root) {
   }
   function reset(){previousKit=linkId??previousKit;routedKit=null;resumeStep=page==='wizard'&&step>0;last=null;clearSessions();hardware.reset();draw();}
   function moveStep(next){
+    if(next!==4)returnToEsc=null;
     if(linkId && last?.state==='connected'){
       if(next===ESC_STEP)markEsc(linkId,true);
       else if(step===ESC_STEP)markEsc(linkId,false);
@@ -340,6 +350,11 @@ export function mount(root) {
     if(el.hasAttribute('data-step')){if(confirmed||el.dataset.step==='0'){moveStep(Number(el.dataset.step));}return;}
     switch(el.dataset.act){
 
+      case 'esc-receiver':{
+        returnToEsc=page;
+        if(page==='esc')last?.navigate('configuration/input');else moveStep(4);
+        return;
+      }
       case 'esc-entry':moveStep(ESC_STEP);return;
       case 'go-arm':step=7;resumeStep=true;last?.navigate('configuration/wizard');return;
       case 'check-tx':last?.checkTransmitter();break;
