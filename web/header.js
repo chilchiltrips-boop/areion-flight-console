@@ -260,7 +260,7 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     }
   }
 
-  async function begin() {
+  async function begin(originalPort=null, forFirmware=false) {
     if (primary.disabled) return;
     const token = ++attempt, mode = transport.value;
     const reconnect = state === 'connected' || state === 'stale';
@@ -269,7 +269,8 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
       let target;
       if (mode === 'usb') {
         // The permission picker must be requested synchronously from this click.
-        target = catalog.selected || await catalog.choose();
+        const selected = forFirmware ? (catalog.ports.includes(originalPort) ? originalPort : null) : catalog.selected;
+        target = selected || await catalog.choose();
         if (!target || token !== attempt) return;
         pendingPort = target;
       } else {
@@ -337,6 +338,10 @@ export function mountHeader(root, {connect, disconnect, stop, notice = () => {},
     get connectionPending() { return pending || !!probe; },
     firmwareBusy(value) { flashing=value; drawState(); },
     chooseFirmwarePort() { transport.value='usb'; drawState(); return catalog.choose(); },
+    reconnectFirmwarePort(port) {
+      if (flashing || pending || probe || OPEN.has(state)) return;
+      transport.value='usb'; drawState(); return begin(port,true);
+    },
     get offline() { return offline; },
     get mode() { return transport.value; },
     get endpointLabel() {

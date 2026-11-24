@@ -189,7 +189,7 @@ function render() {
   const now = performance.now(), refresh = now - lastShellUpdate >= 150;
   if (!refresh && page !== 'flight') return;
   const ctx = {model,clock,state:replay?'replay':state,replay:!!replay,snapshot,events:shell.events,link,
-    withFirmwarePort,firmwareBusy,path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
+    withFirmwarePort,firmwareBusy,reconnectFirmwarePort:port=>header.reconnectFirmwarePort(port),path:route,mode:header.mode,portLabel:header.endpointLabel,packetCount:count,
     browser:{embedded:access.embedded, usb:access.usbIssue, ap:access.apIssue, offline:header.offline},
     get rows(){return replay ? replay.rows.slice(0,replay.index) : recording;},
     group:(id,maxAge=Infinity)=>model.get(id,clock,maxAge),

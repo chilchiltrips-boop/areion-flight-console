@@ -37,7 +37,7 @@ export function mount(root) {
     reconnect.hidden=!waitForBoot || flashing || !idle;
   }
   mode.onchange=()=>{safe.checked=false;flashControls();};safe.onchange=flashControls;
-  reconnect.onclick=()=>ctx?.toggleUsb?.();
+  reconnect.onclick=()=>ctx?.reconnectFirmwarePort?.(flashHandle);
   flash.onclick=async()=>{
     if (flash.disabled || flashing) return;
     flashing=true;waitForBoot=false;verified=null;expectedKit=null;flashHandle=null;progress.value=0;flashControls();
