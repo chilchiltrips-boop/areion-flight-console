@@ -44,9 +44,14 @@ public final class AreionTouchInstrumentation extends Instrumentation {
             Context context = getTargetContext();
             if (arguments != null && "true".equals(arguments.getString("requireOffline"))) {
                 ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-                NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
-                require(caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
-                        "Disable emulator data and Wi-Fi for the offline acceptance run");
+                final long deadline = SystemClock.uptimeMillis() + 12000;
+                while (true) {
+                    NetworkCapabilities caps = cm.getNetworkCapabilities(cm.getActiveNetwork());
+                    if (caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) break;
+                    require(SystemClock.uptimeMillis() < deadline,
+                            "Disable emulator data and Wi-Fi for the offline acceptance run");
+                    SystemClock.sleep(150);
+                }
             }
             Intent intent = new Intent().setClassName(context, "in.zebjus.areion.AreionActivity")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
