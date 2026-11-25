@@ -5,24 +5,16 @@ plugins {
 def repo = rootProject.projectDir.parentFile
 def appVersion = new Properties()
 rootProject.file('version.properties').withInputStream { appVersion.load(it) }
-def generatedAssets = layout.buildDirectory.dir('generated/areionAssets')
-def simulatorSource = providers.environmentVariable('DRONELAB_SOURCE')
-def consoleAssets = tasks.register('prepareConsoleAssets', Exec) {
+def generatedAssets = layout.buildDirectory.dir('generated/apControlAssets')
+def sharedModules = new groovy.json.JsonSlurper().parse(rootProject.file('shared-modules.json'))
+def controllerAssets = tasks.register('prepareControllerAssets', Exec) {
     workingDir repo
-    inputs.files(fileTree(new File(repo, 'web')), fileTree(new File(repo, 'firmware')),
-        fileTree(new File(repo, 'android/console')), fileTree(new File(repo, 'scripts')),
-        fileTree(new File(repo, 'android/scripts')), new File(repo, 'package-lock.json'))
-    outputs.dir(generatedAssets.map { it.dir('console') })
-    commandLine 'node', 'android/scripts/prepare-console.mjs', generatedAssets.get().dir('console').asFile
-}
-def simulatorAssets = tasks.register('prepareSimulatorAssets', Exec) {
-    workingDir repo
-    inputs.file new File(repo, 'android/legacy/prepare.py')
-    inputs.files fileTree(new File(repo, 'android/legacy')) { exclude 'java/**' }
-    outputs.dir(generatedAssets.map { it.dir('simulator') })
-    def command = ['python3', 'android/legacy/prepare.py', '--output', generatedAssets.get().asFile]
-    if (simulatorSource.isPresent()) command.addAll(['--source', simulatorSource.get()])
-    commandLine command
+    inputs.dir rootProject.file('controller')
+    inputs.file rootProject.file('shared-modules.json')
+    inputs.file rootProject.file('scripts/prepare-controller.mjs')
+    inputs.files sharedModules.collect { new File(repo, "web/${it}") }
+    outputs.dir(generatedAssets.map { it.dir('controller') })
+    commandLine 'node', 'android/scripts/prepare-controller.mjs', generatedAssets.get().dir('controller').asFile
 }
 
 android {
@@ -38,7 +30,6 @@ android {
         testInstrumentationRunner 'in.zebjus.areion.AreionTouchInstrumentation'
     }
     sourceSets {
-        main.java.srcDir rootProject.file('legacy/java')
         main.assets.srcDir generatedAssets
     }
     compileOptions {
@@ -49,7 +40,7 @@ android {
         debug { applicationIdSuffix '.preview' }
     }
 }
-tasks.named('preBuild') { dependsOn consoleAssets, simulatorAssets }
+tasks.named('preBuild') { dependsOn controllerAssets }
 
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

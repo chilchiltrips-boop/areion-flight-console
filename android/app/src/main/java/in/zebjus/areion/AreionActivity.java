@@ -3,9 +3,6 @@ package in.zebjus.areion;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -18,8 +15,6 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
-import android.webkit.ValueCallback;
-import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -30,11 +25,8 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 public class AreionActivity extends Activity {
-    private static final int OPEN_INPUT = 6211;
     private WebView browser;
     private KitGateway gateway;
-    private DocumentExport export;
-    private ValueCallback<Uri[]> fileInput;
     private volatile boolean active;
     private volatile boolean trusted;
 
@@ -42,9 +34,8 @@ public class AreionActivity extends Activity {
     protected void onCreate(Bundle savedState) {
         super.onCreate(savedState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        export = new DocumentExport(this);
         gateway = new KitGateway(getApplicationContext(), this::socketEvent);
-        PackagedConsole site = new PackagedConsole(getAssets());
+        ControllerAssets site = new ControllerAssets(getAssets());
         browser = new WebView(this);
         setContentView(browser);
         browser.setFocusableInTouchMode(true);
@@ -65,10 +56,10 @@ public class AreionActivity extends Activity {
                 return site.serve(req);
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
-                return !PackagedConsole.owns(req.getUrl());
+                return !req.isForMainFrame() || !ControllerAssets.isController(req.getUrl());
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
-                trusted = PackagedConsole.owns(Uri.parse(url));
+                trusted = ControllerAssets.isController(Uri.parse(url));
             }
             @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 trusted = false;
@@ -82,21 +73,7 @@ public class AreionActivity extends Activity {
                 return true;
             }
         });
-        browser.setWebChromeClient(new WebChromeClient() {
-            @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> result, FileChooserParams params) {
-                if (!permitted()) return false;
-                if (fileInput != null) fileInput.onReceiveValue(null);
-                fileInput = result;
-                Intent open = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                    .setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES,
-                        new String[]{"text/csv", "text/plain", "application/csv", "application/octet-stream"});
-                try { startActivityForResult(open, OPEN_INPUT); }
-                catch (ActivityNotFoundException error) { fileInput.onReceiveValue(null); fileInput = null; }
-                return true;
-            }
-        });
-        // A new process always starts with a disarmed local touch preview.
-        browser.loadUrl(PackagedConsole.START);
+        browser.loadUrl(ControllerAssets.START);
     }
 
     private boolean permitted() { return active && trusted; }
@@ -153,36 +130,8 @@ public class AreionActivity extends Activity {
                 }
             });
         }
-        @JavascriptInterface public void openSimulator() {
-            if (!permitted()) return;
-            runOnUiThread(() -> {
-                if (permitted()) startActivity(new Intent(AreionActivity.this, SimulatorActivity.class));
-            });
-        }
-
-        @JavascriptInterface public int beginExport(String name, int size) { return permitted() ? export.begin(name, size) : 0; }
-        @JavascriptInterface public boolean appendExport(int token, String data) { return permitted() && export.append(token,data); }
-        @JavascriptInterface public boolean finishExport(int token) { return permitted() && export.finish(token); }
-        @JavascriptInterface public void cancelExport(int token) { export.cancel(token); }
-        @JavascriptInterface public boolean copyText(String text) {
-            if (!permitted() || text == null || text.length() > 131072) return false;
-            try {
-                ClipboardManager clipboard = (ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
-                clipboard.setPrimaryClip(ClipData.newPlainText("Areion diagnostics", text));
-                return true;
-            } catch (RuntimeException e) { return false; }
-        }
     }
 
-    @Override protected void onActivityResult(int request, int result, Intent data) {
-        super.onActivityResult(request,result,data);
-        Uri uri = result == RESULT_OK && data != null ? data.getData() : null;
-        if (request == DocumentExport.REQUEST) export.selected(uri);
-        if (request == OPEN_INPUT && fileInput != null) {
-            fileInput.onReceiveValue(uri != null && "content".equals(uri.getScheme()) ? new Uri[]{uri} : null);
-            fileInput = null;
-        }
-    }
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) immersive();
@@ -204,15 +153,12 @@ public class AreionActivity extends Activity {
         super.onPause();
     }
     @Override public void onBackPressed() {
-        if (browser != null && browser.canGoBack()) browser.goBack();
-        else super.onBackPressed();
+        finish();
     }
     @Override protected void onDestroy() {
         active = false;
         trusted = false;
         gateway.destroy();
-        export.clear();
-        if (fileInput != null) fileInput.onReceiveValue(null);
         if (browser != null) {
             browser.removeJavascriptInterface("AreionAndroid");
             browser.destroy();

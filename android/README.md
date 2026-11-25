@@ -1,26 +1,28 @@
-# Areion Flight Console for Android
+# Areion Drone Control for Android
 
-The Android app opens on the two-stick transmitter in landscape. It includes the Areion FC A1 console, F450 assembly, setup wizard, IMU and ESC calibration, PID controls, scopes, recordings and firmware update over the kit AP. The console, models and matching firmware are installed with the APK and available offline.
+A landscape touch transmitter for the Areion FC A1. Opening the app brings up the sticks and the AP connection controls. The screen and all its resources are installed with the APK.
 
-## Connect to an Areion FC A1
+## Connect to the kit
 
-1. Join the kit Wi-Fi in Android Settings. If Android asks whether to keep using this network without internet, keep the connection.
-2. Open the app and tap **Connect AP**. The phone opens the FC's existing WebSocket gateway at `ws://192.168.4.1:8081/areion`. The socket uses the kit Wi-Fi even when cellular data is enabled.
-3. With the kit disarmed, select **Use AP input** if the FC is set to PPM or USB. Tap **Start sender** with the sticks neutral. The shared console verifies the FC's channel readback before showing the sender as ready.
-4. Use **Console** to open setup, live channels, PID, diagnostics, scopes or firmware. Use **Touch deck** to return. On Android, the Firmware page updates an AP-capable kit over Wi-Fi. Initial USB installation and USB Wi-Fi recovery are available on the desktop console.
+1. Open **Wi-Fi** and join the kit network. Keep the connection if Android reports that this network has no internet.
+2. Return to the sticks and tap **Connect AP**.
+3. If the controller uses another input, disarm it and choose **Use AP input**. With the sticks neutral and throttle low, tap **Start sender**. The controller reports the channels it receives.
 
-Areion FC A1 browser AP firmware 3.5.0 supports this app. All physical kit communication uses Areion Link v2 with the same device session, frame encoding, eight-channel mapping, command acknowledgments and telemetry as the web console. Kit settings and input selection are shared across clients.
+The phone uses the existing Areion Link v2 gateway at `ws://192.168.4.1:8081/areion`. Android binds the connection to the kit Wi-Fi even when mobile data is available. Areion FC A1 AP firmware 3.5.0 supports this protocol.
 
-## Touch controls
+## Controls
 
-- Touch anywhere inside a pad to set its centre. Each pad tracks its own finger. The left pad changes throttle and yaw. Throttle holds when released, yaw returns to centre. The right pad controls pitch and roll and springs back when released.
-- **Slow**, **Medium** and **Fast** set stick response and throttle ramp speed. The phone remembers the selected response.
-- Use a third finger to tap **STOP** while both sticks are held. The deck shows the FC's reported arm state, attitude and channel feedback. Offline, the sticks provide local practice. Returning from another app requires a fresh, explicit control session.
-- **PC simulator pairing** opens a separate controller for the DroneLab PC simulator. It supports QR and manual offer/answer, optional online short-code pairing and two-thumb input. Only the simulator uses this pairing channel. The A1 kit always uses Areion Link v2.
+The left thumb controls throttle and yaw. Releasing it holds throttle and centers yaw. The right thumb controls pitch and roll, which center on release. A third finger can tap **STOP** while both pads are held. The screen shows the FC's reported arm state and flight mode. The speed preset changes touch response. Reopening the app after leaving it requires an explicit connection and sender start.
 
-## Build
+## Install
 
-Use JDK 17, Android SDK 35, Node 22 and Python 3. From the repository root run:
+[Download Areion Drone Control 1.1.0 for Android](https://github.com/chilchiltrips-boop/areion-flight-console/releases/download/android-v1.1.0-preview.2/Areion-Flight-Console.apk)
+
+Requires Android 8.0 or later and a current Android System WebView. The preview package ID is `in.zebjus.areion.console.preview`. GitHub builds use development signing. If Android reports a signature conflict while updating an older preview, export any recordings you want to keep before uninstalling the old preview and installing this one.
+
+## Build and verify
+
+Use JDK 17, Android SDK 35, Node 22 and Python 3. From the repository root:
 
 ```sh
 npm ci --ignore-scripts
@@ -29,6 +31,4 @@ android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest
 python3 android/scripts/verify-apk.py android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The first build stages a pinned set of DroneLab simulator assets and downloads the published A1 firmware if a local `build/firmware-release` is missing. The packaging step compares that release's bundled firmware sources to this checkout and verifies its asset checksums. For a local build with a pre-existing DroneLab Git checkout, set `DRONELAB_SOURCE` to its path. The installed APK needs no internet for the A1 connection.
-
-The preview package is `in.zebjus.areion.console.preview` (Android 8.0+ with a current Android System WebView). It installs alongside DroneLab. Development APKs use a debug signature. Retain your own signing key for installations that require in-place updates across releases.
+The Android build packages the controller screen and its local dependencies. Device tests exercise multitouch input and exchange Link v2 packets with a loopback test controller.

@@ -2,7 +2,7 @@
 
 [Open Flight Data](https://chilchiltrips-boop.github.io/areion-flight-console/#flight) · [Open the setup wizard](https://chilchiltrips-boop.github.io/areion-flight-console/#configuration/wizard)
 
-[Android app and AP touch controls](android/README.md)
+[Android AP touch transmitter](android/README.md)
 
 The GitHub Pages application runs in the browser and talks directly to the Areion FC A1. The laptop needs only a compatible browser. The toolbar keeps navigation, TX/RX rates, the kit connection, arming status and STOP on one line. The notification bell shows offline readiness and update messages. Opening it marks the messages as read.
 

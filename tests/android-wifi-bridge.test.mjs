@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {WifiPort, DEFAULT_AP_URL} from '../web/wifi.js';
 
-const script = readFileSync(new URL('../android/console/native-host.js',import.meta.url),'utf8');
+const script = readFileSync(new URL('../android/controller/native-host.js',import.meta.url),'utf8');
 const ws = {CONNECTING:0, OPEN:1, CLOSING:2, CLOSED:3};
 class Close extends Event {
   constructor(type, init) { super(type); Object.assign(this, init); }

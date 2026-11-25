@@ -57,16 +57,16 @@ public final class AreionTouchInstrumentation extends Instrumentation {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             final Activity started = startActivitySync(intent);
             runOnMainSync(() -> web = findWeb(started.getWindow().getDecorView()));
-            require(web != null, "A1 cockpit has no WebView");
+            require(web != null, "AP controller has no WebView");
             waitFor("document.querySelector('.a1-touch-deck')?.getBoundingClientRect().width>0", 60000);
-            waitFor("location.origin==='https://chilchiltrips-boop.github.io'");
-            byte[][] messages = encodeWithPackagedConsole();
+            checkStandaloneScreen();
+            byte[][] messages = encodeWithPackagedController();
             String telemetry = A1GatewayFixture.exchange(context, messages[0], messages[1]);
             checkReturnedChannels(telemetry);
             testTouch();
-            runOnMainSync(started::finish);
-            result.putString("stream", "PASS Areion Android: packaged touch deck, simultaneous fingers, "
-                    + "throttle latch, cancel, third-finger stop, offline preview, "
+            checkBack(started);
+            result.putString("stream", "PASS Areion Android: standalone AP controller and Back, simultaneous fingers, "
+                    + "throttle latch, cancel, third-finger stop, disconnected controls, "
                     + "A1 WebSocket handshake, HELLO, CONTROL and FC channel readback.\n");
             finish(Activity.RESULT_OK, result);
         } catch (Throwable failure) {
@@ -83,6 +83,33 @@ public final class AreionTouchInstrumentation extends Instrumentation {
         }
     }
 
+    private void checkStandaloneScreen() throws Exception {
+        waitFor("location.href==='https://chilchiltrips-boop.github.io/areion-flight-console/controller/index.html'");
+        require("true".equals(js("!document.querySelector('iframe,video,#console-pages,#pages-menu')"
+                + " && typeof AreionAndroid.openSimulator==='undefined'"
+                + " && ![...document.querySelectorAll('a,button')].some(el=>"
+                + "/console|simulator|station mode|STA mode/i.test(el.textContent))")),
+                "The installed controller exposed another console or simulator screen");
+        require("true".equals(js("!performance.getEntriesByType('resource').some(entry=>"
+                + "/(?:assembly|simulator|three\\.module|firmware-release\\/|configuration\\.js|scopes\\.js)/i.test(entry.name))")),
+                "A desktop or simulator resource loaded at startup");
+    }
+
+    @SuppressWarnings("deprecation")
+    private void checkBack(Activity activity) {
+        runOnMainSync(() -> {
+            require(!web.canGoBack(), "AP controls have another page in history");
+            activity.onBackPressed();
+        });
+        long end = SystemClock.uptimeMillis() + 5000;
+        boolean[] left = {false};
+        while (!left[0] && SystemClock.uptimeMillis() < end) {
+            runOnMainSync(() -> left[0] = activity.isFinishing() || activity.isDestroyed() || !activity.hasWindowFocus());
+            if (!left[0]) SystemClock.sleep(75);
+        }
+        require(left[0], "Android Back opened another screen inside the controller");
+    }
+
     private void testTouch() throws Exception {
         js("window.__pulses=()=>['roll','pitch','throttle','yaw'].map(k=>parseInt(document"
                 + ".querySelector('.a1-touch-deck [data-channel='+k+']').textContent,10));true");
@@ -90,7 +117,7 @@ public final class AreionTouchInstrumentation extends Instrumentation {
         waitFor("document.querySelector('[data-deck-action=send]').disabled"
                 + " && document.querySelector('[data-deck-action=arm]').disabled && typeof AreionNativeSocket==='function'");
         js("window.__socketOpens=0;window.__originalSocket=window.AreionNativeSocket;"
-                + "window.AreionNativeSocket=class{constructor(){__socketOpens++;throw Error('Socket attempted during preview')}};"
+                + "window.AreionNativeSocket=class{constructor(){__socketOpens++;throw Error('Socket attempted without connecting')}};"
                 + "window.__trustedTouches=0;addEventListener('pointerdown',e=>{"
                 + "if(e.isTrusted && e.pointerType==='touch')__trustedTouches++},true);true");
 
@@ -125,15 +152,14 @@ public final class AreionTouchInstrumentation extends Instrumentation {
         touch(MotionEvent.ACTION_MOVE, new int[]{0, 1}, left, right);
         touch(MotionEvent.ACTION_CANCEL, new int[]{0, 1}, left, right);
         waitFor("JSON.stringify(__pulses())==='" + NEUTRAL + "' && __trustedTouches===5");
-        waitFor("__socketOpens===0 && document.querySelector('[data-deck-action=send]').disabled"
-                + " && document.querySelector('#frames').textContent.trim()==='0 packets'");
+        waitFor("__socketOpens===0 && document.querySelector('[data-deck-action=send]').disabled");
         js("window.AreionNativeSocket=window.__originalSocket;true");
     }
 
-    private byte[][] encodeWithPackagedConsole() throws Exception {
+    private byte[][] encodeWithPackagedController() throws Exception {
         String encoder = """
             try {
-                const url = new URL('./protocol.js', document.baseURI);
+                const url = new URL('./shared/protocol.js', document.baseURI);
                 const protocol = await import(url.href);
                 window.__fwProtocol = protocol;
                 const base64 = bytes => btoa(String.fromCharCode(...bytes));
@@ -145,12 +171,13 @@ public final class AreionTouchInstrumentation extends Instrumentation {
                 window.__a1error = String(error.stack || error);
             }
             """;
-        // A document module gets the same WebView module loader and base URL as the installed console.
+        // A document module gets the same WebView module loader and base URL as the installed controller.
         js("(()=>{const script=document.createElement('script');script.type='module';"
                 + "script.onerror=()=>{window.__a1error='Could not execute test module at '+document.baseURI};"
                 + "script.textContent=" + JSONObject.quote(encoder) + ";document.head.append(script);return true})()");
         waitFor("Array.isArray(window.__a1messages) || typeof window.__a1error==='string'");
-        require("null".equals(js("window.__a1error || null")), "A1 encoder failed: " + js("window.__a1error || null"));
+        String error = js("window.__a1error || null");
+        require("null".equals(error), "A1 encoder failed: " + error);
         JSONArray values = new JSONArray(js("__a1messages"));
         return new byte[][]{android.util.Base64.decode(values.getString(0), android.util.Base64.DEFAULT),
                 android.util.Base64.decode(values.getString(1), android.util.Base64.DEFAULT)};

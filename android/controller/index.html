@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Areion Drone Control</title>
+  <link rel="stylesheet" href="./controller.css">
+  <script src="./native-host.js" defer></script>
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main class="a1-touch-deck" id="flight-page" aria-label="Areion drone control">
+    <header class="head">
+      <h1 class="a1-brand">AREION <small>FC A1</small></h1>
+      <span class="link-state" id="link-state">Offline</span>
+      <span class="head-space"></span>
+      <button type="button" data-deck-action="wifi">Wi-Fi</button>
+      <button type="button" data-deck-action="connect">Connect AP</button>
+      <button type="button" data-deck-action="stop" aria-label="Stop and disarm"><span aria-hidden="true">■</span> STOP</button>
+    </header>
+
+    <section class="sticks" aria-label="Flight controls">
+      <div class="pad" data-pad="left" role="group" aria-label="Throttle and yaw joystick">
+        <div class="pad-header"><h2>Throttle <span>/</span> Yaw</h2><span class="response-hint">Hold throttle</span></div>
+        <div class="ring" aria-hidden="true"><div class="reticle"></div><div class="knob"></div></div>
+        <div class="channels" aria-label="Command and FC readback in microseconds">
+          <div><small>Throttle</small><b data-channel="throttle">1000</b><i data-echo="throttle"></i></div>
+          <div><small>Yaw</small><b data-channel="yaw">1500</b><i data-echo="yaw"></i></div>
+        </div>
+      </div>
+      <div class="pad" data-pad="right" role="group" aria-label="Pitch and roll joystick">
+        <div class="pad-header"><h2>Pitch <span>/</span> Roll</h2><span class="response-hint">Spring return</span></div>
+        <div class="ring" aria-hidden="true"><div class="reticle"></div><div class="knob"></div></div>
+        <div class="channels" aria-label="Command and FC readback in microseconds">
+          <div><small>Pitch</small><b data-channel="pitch">1500</b><i data-echo="pitch"></i></div>
+          <div><small>Roll</small><b data-channel="roll">1500</b><i data-echo="roll"></i></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="toolbar" aria-label="Transmitter controls">
+      <button type="button" data-deck-action="source" hidden>Use AP input</button>
+      <button type="button" data-deck-action="send" disabled>Start sender</button>
+      <button type="button" data-deck-action="arm" disabled>Arm</button>
+      <button type="button" data-deck-action="mode" disabled>Mode —</button>
+      <span class="toolbar-space"></span>
+      <button type="button" data-deck-action="preset" aria-label="Stick response: Medium">Medium</button>
+      <button type="button" data-deck-action="aux" aria-controls="aux-panel" aria-expanded="false">Aux</button>
+    </div>
+
+    <footer>
+      <span id="arm-state">Arm —</span>
+      <span role="status" id="feedback">Sender off</span>
+      <span id="attitude" aria-label="Measured roll, pitch and relative yaw" hidden></span>
+    </footer>
+
+    <section id="aux-panel" aria-label="Auxiliary channels" hidden>
+      <header><h2>Auxiliary channels</h2><button type="button" data-deck-action="closeAux">Done</button></header>
+      <div id="aux-channels"></div>
+    </section>
+  </main>
+</body>
+</html>

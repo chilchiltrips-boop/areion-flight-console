@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Controls,NEUTRAL} from '../web/cockpit-controls.js';
-import {TouchInput,responses} from '../android/console/touch-input.js';
+import {TouchInput,responses} from '../android/controller/touch-input.js';
 
 test('floating thumbs are neutral on first contact and have separate ownership',()=>{
   const controls=new Controls(), input=new TouchInput(controls,'Fast');

@@ -6,8 +6,6 @@ on:
     paths:
       - 'android/**'
       - 'web/**'
-      - 'firmware/**'
-      - 'scripts/**'
       - 'tests/**'
       - 'package*.json'
       - '.github/workflows/android.yml'
@@ -34,28 +32,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Test A1 and Android controls
         run: npm test
-      - uses: actions/cache/restore@v4
-        with:
-          path: build/firmware-release
-          key: areion-c6-core-3.3.7-${{ hashFiles('firmware/**', 'scripts/package-firmware.mjs', 'scripts/firmware-sources.py', 'web/firmware-release.js') }}
-      - name: Verify matching A1 firmware
-        id: firmware
-        continue-on-error: true
-        run: python3 android/scripts/prepare-firmware.py
-      - uses: arduino/setup-arduino-cli@v2
-        if: steps.firmware.outcome == 'failure'
-      - name: Compile firmware when no matching published release is available
-        if: steps.firmware.outcome == 'failure'
-        run: |
-          url=https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli core update-index --additional-urls "$url"
-          arduino-cli core install esp32:esp32@3.3.7 --additional-urls "$url"
-          arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32C6 --libraries firmware/libraries --build-path "$RUNNER_TEMP/areion-firmware" firmware/AreionBrowserAP
-          node scripts/package-firmware.mjs "$RUNNER_TEMP/areion-firmware" build/firmware-release "$HOME/.arduino15/packages/esp32/hardware/esp32/3.3.7/tools/partitions/boot_app0.bin"
       - name: Assemble preview and instrumentation APKs
         run: android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
-      - name: Test the packaged simulator companion
-        run: SIMULATOR_ASSETS="$PWD/android/app/build/generated/areionAssets/simulator" node --test android/legacy/tests/simulator.test.mjs
       - name: Verify packaged assets and Android signature
         run: |
           mkdir -p build/android-artifacts
@@ -131,5 +109,5 @@ jobs:
           build=$(sed -n 's/^versionCode=//p' android/version.properties)
           tag="android-v${version}-preview.${build}"
           if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" apks/Areion-Flight-Console.apk apks/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Areion Flight Console for Android $version (preview $build)" --prerelease --latest=false --notes "Install the signed preview on Android 8.0 or later. Join your kit Wi-Fi and tap Connect. The A1 console uses Areion Link v2. Android preview builds use development signing."
+            gh release create "$tag" apks/Areion-Flight-Console.apk apks/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Areion Drone Control $version (Android preview $build)" --prerelease --latest=false --notes "AP-only touch transmitter for Areion FC A1. Install on Android 8.0 or later, join the kit Wi-Fi, and tap Connect AP. Flight controls and telemetry use Areion Link v2. Development-signed preview."
           fi

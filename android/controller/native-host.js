@@ -1,4 +1,4 @@
-// Installed before the bundled console's ES modules. Browser builds do not load this adapter.
+// Bind the local controller to Android’s kit Wi-Fi before its ES modules start.
 (() => {
   'use strict';
   const host = window.AreionAndroid;

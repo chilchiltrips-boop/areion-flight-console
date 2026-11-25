@@ -1,0 +1,13 @@
+[
+  "ap-session-port.js",
+  "ap-worker-runtime.js",
+  "cockpit-controls.js",
+  "config-commands.js",
+  "esc-progress.js",
+  "firmware-release.js",
+  "instruments.js",
+  "protocol.js",
+  "stick-geometry.js",
+  "usb.js",
+  "wifi.js"
+]
