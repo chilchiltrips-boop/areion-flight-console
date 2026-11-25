@@ -29,7 +29,7 @@ def check_apk(apk_file):
             if apk.read(PREFIX + "shared/" + name) != (ROOT / "web" / name).read_bytes():
                 raise ValueError("Packaged link or command module differs from Areion: " + name)
         for name in names:
-            if name.endswith((".jks", ".keystore")):
+            if name.lower().endswith((".jks", ".keystore", ".p12", ".pfx")):
                 raise ValueError("Unexpected signing key in APK")
         if not {"classes.dex", "AndroidManifest.xml"}.issubset(names):
             raise ValueError("Invalid APK")

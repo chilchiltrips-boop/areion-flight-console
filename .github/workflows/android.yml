@@ -10,6 +10,11 @@ on:
       - 'package*.json'
       - '.github/workflows/android.yml'
   workflow_dispatch:
+    inputs:
+      publish_stable:
+        description: Publish a signed Android release after device tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,6 +52,28 @@ jobs:
           name: areion-android
           path: build/android-artifacts/
           if-no-files-found: error
+      - name: Assemble and check the unsigned stable APK
+        run: |
+          android/gradlew -p android :app:assembleRelease --console=plain
+          apk=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          python3 android/scripts/verify-apk.py "$apk"
+          code=$(sed -n 's/^versionCode=//p' android/version.properties)
+          version=$(sed -n 's/^versionName=//p' android/version.properties)
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" > "$RUNNER_TEMP/stable-badging.txt"
+          grep -Fq "package: name='in.zebjus.areion.console' versionCode='$code' versionName='$version'" "$RUNNER_TEMP/stable-badging.txt"
+          if grep -q '^application-debuggable' "$RUNNER_TEMP/stable-badging.txt"; then
+            echo "::error::The stable APK must be a release build."
+            exit 1
+          fi
+      - name: Exercise APK signing with a disposable key
+        run: python3 android/scripts/test-release-signing.py android/app/build/outputs/apk/release/app-release-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && inputs.publish_stable
+        with:
+          name: areion-unsigned-release
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          retention-days: 3
   device-test:
     needs: build
     runs-on: ubuntu-latest
@@ -111,3 +138,77 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" apks/Areion-Flight-Console.apk apks/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Areion Drone Control $version (Android preview $build)" --prerelease --latest=false --notes "AP-only touch transmitter for Areion FC A1. Install on Android 8.0 or later, join the kit Wi-Fi, and tap Connect AP. Flight controls and telemetry use Areion Link v2. Development-signed preview."
           fi
+  stable:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_stable
+    needs: device-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: areion-android-stable-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: areion-unsigned-release
+          path: unsigned
+      - name: Prepare the Android signature verifier
+        run: |
+          if [[ ! -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" ]]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          fi
+      - name: Check version and retrieve the previous signing certificate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^versionName=//p' android/version.properties)
+          code=$(sed -n 's/^versionCode=//p' android/version.properties)
+          [[ "$version" =~ ^[0-9]+([.][0-9]+)*$ && "$code" =~ ^[1-9][0-9]*$ ]]
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' > "$RUNNER_TEMP/android-tags"
+          previous_code=0
+          previous_tag=""
+          while IFS= read -r tag; do
+            if [[ "$tag" =~ ^android-v[0-9.]+-stable\.([0-9]+)$ ]]; then
+              published_code=${BASH_REMATCH[1]}
+              if (( published_code > previous_code )); then
+                previous_code=$published_code
+                previous_tag=$tag
+              fi
+            fi
+          done < "$RUNNER_TEMP/android-tags"
+          if (( code <= previous_code )); then
+            echo "::error::Increase android/version.properties versionCode beyond $previous_code before publishing."
+            exit 1
+          fi
+          if [[ -n "$previous_tag" ]]; then
+            gh release download "$previous_tag" --pattern Areion-signing-certificate.pem --dir "$RUNNER_TEMP/previous"
+          fi
+          next_tag="android-v${version}-stable.${code}"
+          gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$next_tag" --jq '.[].ref' > "$RUNNER_TEMP/matching-tags"
+          if grep -Fxq "refs/tags/$next_tag" "$RUNNER_TEMP/matching-tags"; then
+            echo "::error::The release tag already exists. Choose a new versionCode."
+            exit 1
+          fi
+          echo "RELEASE_TAG=$next_tag" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$version ($code)" >> "$GITHUB_ENV"
+      - name: Sign with the permanent key and verify the packaged certificate
+        env:
+          AREION_ANDROID_SIGNING_BUNDLE: ${{ secrets.AREION_ANDROID_SIGNING_BUNDLE }}
+        run: |
+          previous=()
+          cert="$RUNNER_TEMP/previous/Areion-signing-certificate.pem"
+          if [[ -f "$cert" ]]; then previous+=("$cert"); fi
+          python3 android/scripts/sign-release.py unsigned/app-release-unsigned.apk dist "${previous[@]}"
+      - name: Publish verified APK and public certificate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: dist
+        run: |
+          sha256sum Areion-Drone-Control.apk Areion-signing-certificate.pem > SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" Areion-Drone-Control.apk Areion-signing-certificate.pem SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Areion Drone Control $RELEASE_VERSION" \
+            --notes "Signed Android release for the Areion FC A1 AP controller. Install over an earlier stable version to keep your settings."

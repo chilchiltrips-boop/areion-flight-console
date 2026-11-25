@@ -16,9 +16,25 @@ The left thumb controls throttle and yaw. Releasing it holds throttle and center
 
 ## Install
 
-[Download Areion Drone Control 1.1.0 for Android](https://github.com/chilchiltrips-boop/areion-flight-console/releases/download/android-v1.1.0-preview.2/Areion-Flight-Console.apk)
+Requires Android 8.0 or later and a current Android System WebView. The first stable APK installs alongside the preview. Recordings and preferences belong to their respective apps. Subsequent stable APKs install over the existing stable app and keep its data.
 
-Requires Android 8.0 or later and a current Android System WebView. The preview package ID is `in.zebjus.areion.console.preview`. GitHub builds use development signing. If Android reports a signature conflict while updating an older preview, export any recordings you want to keep before uninstalling the old preview and installing this one.
+| Channel | Package | Download |
+| --- | --- | --- |
+| Stable | `in.zebjus.areion.console` | Look for `Areion-Drone-Control.apk` in [GitHub Releases](https://github.com/chilchiltrips-boop/areion-flight-console/releases) once the owner publishes the first signed build. |
+| Preview | `in.zebjus.areion.console.preview` | [1.1.0 development preview](https://github.com/chilchiltrips-boop/areion-flight-console/releases/download/android-v1.1.0-preview.2/Areion-Flight-Console.apk). Export recordings before uninstalling an older preview if Android reports a signature conflict. |
+
+## Set up Android signing
+
+On the repository owner’s Mac or Linux computer, install Python 3, a JDK with `keytool`, and GitHub CLI. Sign in to an account with permission to manage this repository’s Actions secrets. From the project root, run
+
+```sh
+gh auth login --hostname github.com --web
+python3 android/scripts/setup-signing.py --publish
+```
+
+The script creates a password-protected signing key, saves its backup under `~/.areion/android-signing/`, sets the encrypted repository secret `AREION_ANDROID_SIGNING_BUNDLE`, and starts the Android release workflow on `main`. Keep an encrypted backup of that folder under your control. When moving to another machine, restore the whole folder before running setup again.
+
+For later releases, increase `versionCode` in `android/version.properties`, update `versionName`, and push to `main`. Open **Build Areion Android → Run workflow** and select **Publish a signed Android release after device tests**. Each stable release includes the APK, its checksum, and the public signing certificate. The workflow checks the signer against the previous stable release. [Android release workflow](https://github.com/chilchiltrips-boop/areion-flight-console/actions/workflows/android.yml)
 
 ## Build and verify
 
